@@ -566,5 +566,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{1} tekrarlık {0} set — ağırlık ekleme ya da daha zor bir varyasyona geçme zamanı.',
   '{0} per side': 'Taraf başına {0}',
   'You still log the total: {0} is {1} per side.': 'Toplamı kaydetmeye devam ediyorsun: {0}, taraf başına {1} demek.',
-  '{0} sets · {1} work': '{0} set · {1} çalışma',
-}
+  'primary': 'birincil',
+  'secondary': 'ikincil',
+  'No exercises with an estimated 1RM yet.': 'Henüz tahmini 1RM olan egzersiz yok.',
+  'Tap a muscle to see its exercises.': 'Egzersizlerini görmek için bir kas seçin.',
+  'Less volume': 'Less volume',
+  'More volume': 'More volume',
+  'by volume': 'by volume',
+  'Default progression': 'Default progression',
+  'App default (linear for reps)': 'App default (linear for reps)',
+  'Show exercise summary': 'Show exercise summary',
+  'When an exercise is done': 'When an exercise is done',
+  'Weights in this file are in': 'Weights in this file are in'

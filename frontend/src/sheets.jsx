@@ -889,6 +889,37 @@ function TopWeight({ entryIdx, close }) {
 }
 export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight entryIdx={entryIdx} close={close} />)
 
+// End-of-exercise summary disabled: confirm the working weight automatically (heaviest
+// done set, else previous best, else the target) and advance exactly like TopWeight's
+// "Save & next exercise" would - so the weight cache still updates without the popup.
+export function autoConfirmTopWeight(entryIdx) {
+  const st = useStore.getState().S
+  const A = st.active
+  if (!A) return
+  const activeUnit = A.unit || A.sourceUnit || st.unit
+  const entry = A.entries[entryIdx]
+  if (!entry) return
+  const units = supersetUnits(A.entries)
+  const unit = unitOf(units, entryIdx)
+  const unitDone = unit.every(i => A.entries[i].sets.every(x => x.done))
+  const unitIdx = units.findIndex(u => u === unit)
+  const isLastUnit = unitIdx === units.length - 1
+  const repsWorkRows = workRowsForMode(entry, 'reps').filter(x => x.done)
+  const maxSet = Math.max(0, ...repsWorkRows.map(x => x.w || 0))
+  const prevBest = Math.max(cachedWeightFor(st.exWeights?.[entry.id], activeUnit), bestWeightFor({ ...st, unit: activeUnit }, entry.id))
+  const n = Math.round((Math.max(maxSet, prevBest) || entry.target.weight || 0) * 10) / 10
+  update(s => {
+    s.active.entries[entryIdx].topW = n
+    if (workRowsForMode(entry, 'reps').some(x => x.done)) {
+      const cur = cachedWeightFor(s.exWeights?.[entry.id], activeUnit)
+      const cache = weightCacheEntry(Math.max(n, cur), todayISO(), activeUnit)
+      if (cache) s.exWeights[entry.id] = cache
+    }
+  })
+  if (isLastUnit) workoutCompleteSheet()
+  else update(s => { s.active.cur = units[unitIdx + 1][0] })
+}
+
 // Shown when the last exercise's last set is checked — finish, or keep going.
 function WorkoutComplete({ close }) {
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>

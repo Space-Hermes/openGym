@@ -566,5 +566,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{1}회 {0}세트 — 이제 무게를 올리거나 더 어려운 동작으로 넘어가세요.',
   '{0} per side': '한쪽당 {0}회',
   'You still log the total: {0} is {1} per side.': '기록은 그대로 합계로 합니다: {0}회는 한쪽당 {1}회입니다.',
-  '{0} sets · {1} work': '{0} 세트 · {1} 작업',
-}
+  'primary': '주동',
+  'secondary': '보조',
+  'No exercises with an estimated 1RM yet.': '추정 1RM이 있는 운동이 아직 없습니다.',
+  'Tap a muscle to see its exercises.': '근육을 눌러 해당 운동을 확인하세요.',
+  'Less volume': 'Less volume',
+  'More volume': 'More volume',
+  'by volume': 'by volume',
+  'Default progression': 'Default progression',
+  'App default (linear for reps)': 'App default (linear for reps)',
+  'Show exercise summary': 'Show exercise summary',
+  'When an exercise is done': 'When an exercise is done',
+  'Weights in this file are in': 'Weights in this file are in'

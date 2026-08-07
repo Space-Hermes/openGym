@@ -566,5 +566,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{0} 组 × {1} 次——该加重量或换更难的变式了。',
   '{0} per side': '每侧 {0} 次',
   'You still log the total: {0} is {1} per side.': '你记录的仍然是总数：{0} 表示每侧 {1} 次。',
-  '{0} sets · {1} work': '{0} 组 · {1} 工作',
-}
+  'primary': '主要',
+  'secondary': '次要',
+  'No exercises with an estimated 1RM yet.': '暂无估算1RM的动作。',
+  'Tap a muscle to see its exercises.': '点击肌肉查看其动作。',
+  'Less volume': 'Less volume',
+  'More volume': 'More volume',
+  'by volume': 'by volume',
+  'Default progression': 'Default progression',
+  'App default (linear for reps)': 'App default (linear for reps)',
+  'Show exercise summary': 'Show exercise summary',
+  'When an exercise is done': 'When an exercise is done',
+  'Weights in this file are in': 'Weights in this file are in'

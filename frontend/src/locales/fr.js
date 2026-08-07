@@ -566,5 +566,15 @@ export default {
   '{0} sets of {1} — time to add weight or move to a harder variation.': '{0} séries de {1} — il est temps d’ajouter du poids ou de passer à une variante plus dure.',
   '{0} per side': '{0} par côté',
   'You still log the total: {0} is {1} per side.': 'Tu notes toujours le total : {0}, c’est {1} par côté.',
-  '{0} sets · {1} work': '{0} séries · {1} travail',
-}
+  'primary': 'principal',
+  'secondary': 'secondaire',
+  'No exercises with an estimated 1RM yet.': 'Aucun exercice avec un 1RM estimé pour l\'instant.',
+  'Tap a muscle to see its exercises.': 'Touchez un muscle pour voir ses exercices.',
+  'Less volume': 'Less volume',
+  'More volume': 'More volume',
+  'by volume': 'by volume',
+  'Default progression': 'Default progression',
+  'App default (linear for reps)': 'App default (linear for reps)',
+  'Show exercise summary': 'Show exercise summary',
+  'When an exercise is done': 'When an exercise is done',
+  'Weights in this file are in': 'Weights in this file are in'
