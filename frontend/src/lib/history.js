@@ -142,6 +142,37 @@ export function cleanupSg(ex) {
   })
 }
 
+// Work rows for one entry in a given mode (reps by default). Warm-up rows - legacy boolean
+// or explicit phase - are excluded, so strength/weight helpers never see them.
+export function workRowsForMode(entry = {}, mode = 'reps') {
+  const source = entry && typeof entry === 'object' ? entry : {}
+  const target = (source.target && typeof source.target === 'object') ? source.target : source
+  const exMode = modeOf({ ...target, id: source.id })
+  const expected = mode || exMode || 'reps'
+  return (Array.isArray(source.sets) ? source.sets : []).filter(set =>
+    set && !(set.warmup === true || set.phase === 'warmup') && (exMode || 'reps') === expected
+  )
+}
+
+// True when the entry has any reps-mode work rows (the end-of-exercise sheet should open).
+export function shouldConfirmWorkingWeight(entry = {}, _mode = null) {
+  return workRowsForMode(entry, 'reps').length > 0
+}
+
+// Heaviest weight lifted to the FULL target in this entry: done work sets that hit
+// their goal (reps >= target reps) count. A set where the last few reps were missed
+// does not set the default weight. Falls back to all done sets when nothing hit the
+// full target, so there is still a sensible default.
+export function bestFullSetWeight(entry = {}, target = null) {
+  const rows = workRowsForMode(entry, 'reps').filter(s => s.done)
+  if (!rows.length) return 0
+  const t = (target && typeof target === 'object') ? target : ((entry && entry.target && typeof entry.target === 'object') ? entry.target : (entry || {}))
+  const goal = t.reps > 0 ? t.reps : 0
+  const full = goal > 0 ? rows.filter(s => (s.r || 0) >= goal) : []
+  const pool = full.length ? full : rows
+  return Math.max(0, ...pool.map(s => s.w || 0))
+}
+
 export function lastEntryFor(S, exId) {
   for (let i = S.workouts.length - 1; i >= 0; i--) {
     const en = S.workouts[i].entries.find(e => e.id === exId)
