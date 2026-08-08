@@ -26,6 +26,9 @@ describe('canonical workout import boundary', () => {
     expect(entry.sets.every(set => !('u' in set))).toBe(true)
     expect(entry.topW).toBe(60)
     expect(workout.vol).toBe(100 * LB_TO_KG * 5 + 60 * 5)
+    expect(parsed.fileUnit).toBe('')
+    expect(parsed.mixedUnits).toBe(true)
+    expect(parsed.converted).toBe(true)
   })
 
   it('uses the selected profile unit only as the source for unannotated rows', () => {
@@ -37,6 +40,37 @@ describe('canonical workout import boundary', () => {
     const parsed = parseWorkoutCSV(csv, { unit: 'lb' })
 
     expect(parsed.workouts[0].entries[0].sets[0].w).toBe(100 * LB_TO_KG)
+    expect(parsed.fileUnit).toBe('lb')
+    expect(parsed.mixedUnits).toBe(false)
+    expect(parsed.converted).toBe(true)
+  })
+
+  it('reports conversion for explicitly labelled pounds even when the profile is already lb', () => {
+    const csv = [
+      'Date,Exercise,Weight,Weight Unit,Reps',
+      '2026-08-10,Bench Press,100,lb,5',
+    ].join('\n')
+
+    const parsed = parseWorkoutCSV(csv, { unit: 'lb' })
+
+    expect(parsed.fileUnit).toBe('lb')
+    expect(parsed.mixedUnits).toBe(false)
+    expect(parsed.converted).toBe(true)
+    expect(parsed.workouts[0].entries[0].sets[0].w).toBe(100 * LB_TO_KG)
+  })
+
+  it('keeps kg-only conversion metadata false even when the profile displays pounds', () => {
+    const csv = [
+      'Date,Exercise,Weight,Weight Unit,Reps',
+      '2026-08-11,Bench Press,60,kg,5',
+    ].join('\n')
+
+    const parsed = parseWorkoutCSV(csv, { unit: 'lb' })
+
+    expect(parsed.fileUnit).toBe('kg')
+    expect(parsed.mixedUnits).toBe(false)
+    expect(parsed.converted).toBe(false)
+    expect(parsed.workouts[0].entries[0].sets[0].w).toBe(60)
   })
 })
 
@@ -65,6 +99,45 @@ describe('canonical bodyweight import boundary', () => {
     const parsed = parseBodyweight(csv, { unit: 'kg' })
 
     expect(parsed.bodyweight.map(row => row.w)).toEqual([180 * LB_TO_KG, 70])
+  })
+
+  it('reports pounds conversion for an Apple Health file even when the profile is already lb', () => {
+    const xml = '<HealthData><Record type="HKQuantityTypeIdentifierBodyMass" value="180" unit="lb" startDate="2026-01-03 08:00:00"/></HealthData>'
+
+    const parsed = parseBodyweight(xml, { unit: 'lb' })
+
+    expect(parsed.fileUnit).toBe('lb')
+    expect(parsed.mixedUnits).toBe(false)
+    expect(parsed.converted).toBe(true)
+  })
+
+  it('uses an lb profile as the source hint for a unitless bodyweight CSV', () => {
+    const csv = [
+      'Date,Weight',
+      '2026-01-06,180',
+    ].join('\n')
+
+    const parsed = parseBodyweight(csv, { unit: 'lb' })
+
+    expect(parsed.fileUnit).toBe('lb')
+    expect(parsed.mixedUnits).toBe(false)
+    expect(parsed.converted).toBe(true)
+    expect(parsed.bodyweight[0].w).toBe(180 * LB_TO_KG)
+  })
+
+  it('reports mixed Apple Health units as both mixed and converted', () => {
+    const xml = [
+      '<HealthData>',
+      '<Record type="HKQuantityTypeIdentifierBodyMass" value="180" unit="lb" startDate="2026-01-04 08:00:00"/>',
+      '<Record type="HKQuantityTypeIdentifierBodyMass" value="70" unit="kg" startDate="2026-01-05 08:00:00"/>',
+      '</HealthData>',
+    ].join('')
+
+    const parsed = parseBodyweight(xml, { unit: 'lb' })
+
+    expect(parsed.fileUnit).toBe('')
+    expect(parsed.mixedUnits).toBe(true)
+    expect(parsed.converted).toBe(true)
   })
 })
 
