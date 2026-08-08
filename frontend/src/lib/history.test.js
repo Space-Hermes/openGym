@@ -528,4 +528,35 @@ describe('session row helpers', () => {
     expect(next.length).toBe(1)
     expect(next[0].w).toBe(70)
   })
+
+
+describe('end-of-exercise default weight helpers', () => {
+  it('workRowsForMode excludes warm-ups in either schema', () => {
+    const entry = { id: 'x', target: { reps: 8 }, sets: [
+      { warmup: true, w: 20, r: 8, done: true },
+      { phase: 'warmup', w: 30, r: 8, done: true },
+      { w: 80, r: 8, done: true },
+    ] }
+    const rows = workRowsForMode(entry, 'reps')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].w).toBe(80)
+  })
+
+  it('bestFullSetWeight prefers full-target sets and falls back to any done work set', () => {
+    const missed = { id: 'x', target: { reps: 8 }, sets: [
+      { w: 100, r: 6, done: true },
+      { w: 80, r: 8, done: true },
+    ] }
+    expect(bestFullSetWeight(missed, missed.target)).toBe(80) // 100x6 missed the goal
+    const fallback = { id: 'y', sets: [{ w: 90, r: 5, done: true }] }
+    expect(bestFullSetWeight(fallback, { reps: 10 })).toBe(90) // nothing full -> any done set
+    expect(bestFullSetWeight({ id: 'z', sets: [{ w: 50, r: 5 }] })).toBe(0) // undone only
+  })
+
+  it('shouldConfirmWorkingWeight opens only for entries with reps work rows', () => {
+    expect(shouldConfirmWorkingWeight({ id: 'x', sets: [{ w: 80, r: 8 }] })).toBe(true)
+    expect(shouldConfirmWorkingWeight({ id: 'y', sets: [{ warmup: true, w: 20, r: 8 }] })).toBe(false)
+    expect(shouldConfirmWorkingWeight({ id: 'z', sets: [] })).toBe(false)
+  })
+})
 })
