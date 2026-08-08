@@ -20,6 +20,7 @@
 
 import { EXDB, EXIDX } from './exercises.js'
 import { uid } from './format.js'
+import { kgFromStored, migrateWorkoutsToKg } from './units.js'
 
 /* ----------------------------------------------------------------- CSV ---- */
 
@@ -242,7 +243,6 @@ const effortNum = (raw, zeroMeansRated) => {
   if (!isFinite(n) || n < 0 || (n === 0 && !zeroMeansRated)) return null
   return Math.min(10, Math.round(n * 100) / 100)
 }
-const LB_TO_KG = 0.45359237
 const p2 = n => String(n).padStart(2, '0')
 const MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 }
 
@@ -382,22 +382,14 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     sets++
   }
 
-  // lb -> kg only where a row disagrees with the profile. The app never converts units on
-  // its own, so importing unconverted would silently rewrite someone's numbers.
-  // Converting PER ROW matters: apps like FitNotes write the unit next to every set, and a
-  // history recorded partly in lb and partly in kg used to be taken over as-is, turning
-  // "185 lb" into 185 kg.
+  // Every imported weight is canonicalized at the parser boundary. A row's explicit unit wins;
+  // otherwise a single-unit file supplies the provenance, and an unannotated file follows the
+  // profile unit selected by the caller. The profile unit is a source hint only — it is never the
+  // storage/display unit of the parsed record.
   const fileUnit = sawLb && !sawKg ? 'lb' : sawKg && !sawLb ? 'kg' : ''
   const mixedUnits = sawLb && sawKg
-  const toKg = x => Math.round(x * LB_TO_KG * 10) / 10
-  const toLb = x => Math.round(x / LB_TO_KG * 10) / 10
-  // A row without its own unit follows the file's, and a file that says nothing is taken
-  // to already be in the profile's unit.
-  const convRow = s => {
-    const u = s.u || fileUnit
-    if (!u || u === unit) return s.w
-    return u === 'lb' ? toKg(s.w) : toLb(s.w)
-  }
+  const sourceUnitFor = s => s.u || fileUnit || unit
+  const convRow = s => kgFromStored(s.w, sourceUnitFor(s))
   const converted = (!!fileUnit && fileUnit !== unit) || mixedUnits
 
   const dates = [...byDate.keys()].sort()
@@ -444,7 +436,18 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
 export function parseBodyweight(text, { unit = 'kg' } = {}) {
   const s = String(text)
   const out = new Map()          // iso date -> { w, t }  (one weigh-in per day, the last)
-  let fileUnit = ''
+  const explicitUnits = new Set()
+  const sourceUnits = new Set()
+  const sourceUnitOf = raw => {
+    const token = String(raw ?? '').trim().toLowerCase()
+    return token.startsWith('lb') ? 'lb' : token.startsWith('kg') ? 'kg' : unit
+  }
+  const add = (date, weight, timestamp, rawUnit, explicit = false) => {
+    const sourceUnit = sourceUnitOf(rawUnit)
+    sourceUnits.add(sourceUnit)
+    if (explicit) explicitUnits.add(sourceUnit)
+    out.set(date, { w: kgFromStored(weight, sourceUnit), t: timestamp })
+  }
 
   if (s.includes('HKQuantityTypeIdentifierBodyMass')) {
     const re = /<Record[^>]*type="HKQuantityTypeIdentifierBodyMass"[^>]*>/g
@@ -457,8 +460,7 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
       if (!val || !dt) continue
       const when = parseWhen(dt[1])
       if (!when) continue
-      if (u) fileUnit = /lb/i.test(u[1]) ? 'lb' : 'kg'
-      out.set(when.d, { w: parseFloat(val[1]), t: new Date(dt[1]).getTime() || null })
+      add(when.d, parseFloat(val[1]), new Date(dt[1]).getTime() || null, u && u[1], true)
     }
   } else {
     const rows = parseCSV(s)
@@ -468,26 +470,32 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
     const wCol = map.weightKg ?? map.weightLb ?? map.weight
     const dCol = map.date ?? map.startTime
     if (wCol === undefined || dCol === undefined) return { error: 'unrecognised' }
-    if (map.weightKg !== undefined) fileUnit = 'kg'
-    else if (map.weightLb !== undefined) fileUnit = 'lb'
     for (let i = 1; i < rows.length; i++) {
       const when = parseWhen(String(rows[i][dCol] ?? ''))
-      const w = num(rows[i][wCol])
+      const raw = rows[i][wCol]
+      const w = num(raw)
       if (!when || !w) continue
-      out.set(when.d, { w, t: new Date(when.d).getTime() + (when.t ?? 0) })
+      const explicit = map.weightKg !== undefined || map.weightLb !== undefined || map.weightUnit !== undefined
+      const rowUnit = map.weightKg !== undefined
+        ? 'kg'
+        : map.weightLb !== undefined
+          ? 'lb'
+          : map.weightUnit !== undefined
+            ? rows[i][map.weightUnit]
+            : unit
+      add(when.d, w, new Date(when.d).getTime() + (when.t ?? 0), rowUnit, explicit)
     }
   }
 
   if (!out.size) return { error: 'unrecognised' }
+  const fileUnit = explicitUnits.size === 1 ? [...explicitUnits][0] : ''
+  const mixedUnits = sourceUnits.size > 1
   const converted = !!fileUnit && fileUnit !== unit
-  const conv = converted
-    ? (fileUnit === 'lb' ? x => Math.round(x * LB_TO_KG * 10) / 10 : x => Math.round(x / LB_TO_KG * 10) / 10)
-    : x => Math.round(x * 10) / 10
   const dates = [...out.keys()].sort()
   return {
     kind: 'bodyweight', source: 'Apple Health',
-    bodyweight: dates.map(d => ({ d, w: conv(out.get(d).w), t: out.get(d).t || new Date(d).getTime() })),
-    fileUnit, converted, from: dates[0], to: dates[dates.length - 1],
+    bodyweight: dates.map(d => ({ d, w: out.get(d).w, t: out.get(d).t || new Date(d).getTime() })),
+    fileUnit, mixedUnits, converted, from: dates[0], to: dates[dates.length - 1],
   }
 }
 
@@ -506,21 +514,27 @@ export function parseImport(text, opts) {
 /** Merge into state. Existing days win — importing twice never duplicates a workout. */
 export function mergeImport(S, parsed) {
   if (parsed.kind === 'bodyweight') {
-    const have = new Set(S.bodyweight.map(b => b.d))
-    const fresh = parsed.bodyweight.filter(b => !have.has(b.d))
-    S.bodyweight = [...S.bodyweight, ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
-    return { added: fresh.length, skipped: parsed.bodyweight.length - fresh.length }
+    // Bodyweight parsers already emit kg, but the merge boundary also accepts legacy/manual
+    // records with per-row unit metadata. Reusing the migration shim here makes both paths safe
+    // and leaves the state with no unit stamps.
+    const canonical = migrateWorkoutsToKg([{ bodyweight: parsed.bodyweight }])[0].bodyweight || []
+    const have = new Set((S.bodyweight || []).map(b => b.d))
+    const fresh = canonical.filter(b => !have.has(b.d))
+    S.bodyweight = [...(S.bodyweight || []), ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
+    return { added: fresh.length, skipped: canonical.length - fresh.length }
   }
-  const have = new Set(S.workouts.map(w => w.d))
-  const fresh = parsed.workouts.filter(w => !have.has(w.d))
+  const workouts = migrateWorkoutsToKg(parsed.workouts)
+  const have = new Set((S.workouts || []).map(w => w.d))
+  const fresh = workouts.filter(w => !have.has(w.d))
   const used = new Set(fresh.flatMap(w => w.entries.map(e => e.id)))
-  const customs = parsed.customEx.filter(c => used.has(c.id) && !EXIDX[c.id])
+  const customs = (parsed.customEx || []).filter(c => used.has(c.id) && !EXIDX[c.id])
   S.customEx = [...(S.customEx || []), ...customs]
-  S.workouts = [...S.workouts, ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
+  S.workouts = [...(S.workouts || []), ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
   // seed the weight suggestions from the newest imported set of each lift
+  S.exWeights = S.exWeights || {}
   fresh.forEach(w => w.entries.forEach(e => {
     const mx = Math.max(0, ...e.sets.map(s => s.w || 0), e.topW || 0)
     if (mx > 0) { const cur = S.exWeights[e.id]; if (!cur || w.d >= cur.d) S.exWeights[e.id] = { w: mx, d: w.d } }
   }))
-  return { added: fresh.length, skipped: parsed.workouts.length - fresh.length }
+  return { added: fresh.length, skipped: workouts.length - fresh.length }
 }

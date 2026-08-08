@@ -6,6 +6,7 @@ import { setLabel, effortOf } from './history.js'
 const HEVY = 'title,start_time,end_time,exercise_title,set_index,set_type,weight_kg,reps,rpe'
 const STRONG = 'Date,Workout Name,Exercise Name,Set Order,Weight,Reps,Seconds,RPE'
 const FITNOTES = 'Date,Exercise,Category,Weight,Reps,Distance,Distance Unit,Time'
+const LB_TO_KG = 0.45359237
 
 const rows = (head, ...lines) => parseWorkoutCSV([head, ...lines].join('\n'), { unit: 'kg' })
 // every set of the first workout, in file order
@@ -104,7 +105,7 @@ describe('importing effort from another app', () => {
       '2026-01-12,Bench Press,135,lbs,10,8',
     ].join('\n'), { unit: 'kg' })
     const s = setsOf(p)[0]
-    expect(s.w).toBe(61.2)
+    expect(s.w).toBe(135 * LB_TO_KG)
     expect(s.rpe).toBe(8)
     expect('u' in s).toBe(false)              // the row's unit marker never reaches the set
   })
