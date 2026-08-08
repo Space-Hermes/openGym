@@ -133,8 +133,6 @@ export default function Settings() {
       <Row icon="flag" iconTint="var(--green)" title={t('Show exercise summary')} subtitle={t('When an exercise is done')}>
         <Switch checked={S.endSummary !== false} onChange={v => update(s => { s.endSummary = v })} />
       </Row>
-<<<<<<< HEAD
-=======
       <Row icon="target" iconTint="var(--purple)" title={t('Default weight from full sets only')} subtitle={t('Missed reps on the last set do not set the next default')}>
         <Switch checked={S.fullSetsDefault !== false} onChange={v => update(s => { s.fullSetsDefault = v })} />
       </Row>
@@ -371,4 +369,3 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     <div style={{ height: 12 }} /><Button variant="primary" onClick={go}>{t('Create passkey')}</Button>
   </>
 }
->>>>>>> 57ea781 (full-sets-only default weight: Settings toggle + defaults)
