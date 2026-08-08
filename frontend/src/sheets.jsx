@@ -20,6 +20,8 @@ import { buildPlanBundle, parsePlan, mergePlan, printPlan } from './lib/plan-sha
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP } from './lib/onerm.js'
 import { nextPrescription, applyPrescription, policyFor, defaultIncrement, POLICIES_FOR, POLICY_NAME, POLICY_DESC, MAX_BW_SETS } from './lib/progression.js'
 import { MOBILE, shareExport } from './lib/mobile.js'
+import { normalizePhase } from './lib/workout-model.js'
+import { warmupDraftForEditor, prependWarmupSets, hasSelectedWorkPhase, resolveTargetLoad, sessionConfigFor, sessionPlanFor } from './lib/workout-runtime.js'
 
 const S = () => useStore.getState().S
 const update = (...a) => useStore.getState().update(...a)
@@ -482,10 +484,145 @@ function ProgressionFields({ ex, mode, c, setC, routine, unit }) {
   </>
 }
 
-function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
+const warmupDraftOf = warmupDraftForEditor
+
+function warmupRowsOf(base) {
+  if (Array.isArray(base.warmup)) return base.warmup.map(row => warmupDraftOf(row, base))
+  const count = Math.max(0, Math.round(Number(base.warmupSets || 0)))
+  if (!count) return []
+  const fallback = {
+    mode: base.warmupMode,
+    reps: base.warmupReps,
+    sec: base.warmupSec,
+    weight: base.warmupWeight,
+    restSec: base.warmupRestSec,
+    weightPrescription: base.warmupLoadMode === 'workset'
+      ? { kind: 'workset_percent', percent: base.warmupLoadPercent, fallbackWeight: base.warmupFallbackWeight }
+      : base.warmupLoadMode === 'percentage'
+        ? { kind: 'percentage', percent: base.warmupLoadPercent, fallbackWeight: base.warmupFallbackWeight }
+        : { kind: 'fixed', weight: base.warmupWeight }
+  }
+  return Array.from({ length: count }, () => warmupDraftOf(fallback, fallback))
+}
+
+function warmupRowsFromEditor(rows = []) {
+  return rows.map(row => {
+    const rowMode = row.mode === 'time' ? 'time' : 'reps'
+    const rowLoad = row.loadMode === 'workset'
+      ? { kind: 'workset_percent', percent: Math.max(1, Math.min(200, Math.round(Number(row.loadPercent)) || 50)), fallbackWeight: Math.max(0, Number(row.loadFallback) || 0) }
+      : row.loadMode === 'percentage'
+        ? { kind: 'percentage', percent: Math.max(1, Math.min(200, Math.round(Number(row.loadPercent)) || 50)), fallbackWeight: Math.max(0, Number(row.loadFallback) || 0) }
+        : { kind: 'fixed', weight: Math.max(0, Number(row.weight) || 0) }
+    const rest = row.restSec == null ? undefined : Math.max(0, Math.round(Number(row.restSec)) || 0)
+    return {
+      ...(row.phase ? { phase: normalizePhase(row.phase, 'warmup') } : {}),
+      mode: rowMode,
+      ...(rowMode === 'time' ? { sec: Math.max(1, Math.round(Number(row.sec)) || 30) } : { reps: Math.max(1, Math.round(Number(row.reps)) || 8) }),
+      weightPrescription: rowLoad,
+      ...(rest == null ? {} : { restSec: rest })
+    }
+  })
+}
+
+function WarmupFields({ c, setC, mode, unit, phaseOnly = false }) {
+  const warmupRows = c.warmupRows || []
+  const patchWarmup = (index, patch) => setC(x => ({
+    ...x,
+    warmupRows: (x.warmupRows || []).map((row, i) => i === index ? { ...row, ...patch } : row)
+  }))
+  const addWarmup = () => setC(x => {
+    const rows = x.warmupRows || []
+    const previous = rows[rows.length - 1]
+    const next = previous
+      ? { ...previous, phase: '' }
+      : warmupDraftOf({ mode: mode === 'time' ? 'time' : 'reps', reps: x.reps, sec: x.sec, weight: x.weight })
+    return { ...x, warmupRows: [...rows, next] }
+  })
+  const removeWarmup = index => setC(x => ({ ...x, warmupRows: (x.warmupRows || []).filter((_, i) => i !== index) }))
+  return <>
+    {!phaseOnly && <h4 className="sec">{t('Warm-up')}</h4>}
+    {warmupRows.map((row, index) => <div key={index} className="card" style={{ marginBottom: 10, padding: 10 }}>
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}>
+        <h5 style={{ margin: 0 }}>{t('Warm-up set {0}', index + 1)}</h5>
+        <button className="iconbtn" aria-label={t('Remove warm-up set')} onClick={() => removeWarmup(index)}><Icon name="trash" /></button>
+      </div>
+      <SelectRow title={t('Phase')} sheetTitle={t('Phase')} value={row.phase || ''} onChange={v => patchWarmup(index, { phase: v })}
+        options={[{ value: '', label: t('Automatic') }, { value: 'warmup', label: t('Warm-up') }, { value: 'work', label: t('Work') }]} />
+      <SelectRow title={t('Mode')} sheetTitle={t('Mode')} value={row.mode} onChange={v => patchWarmup(index, { mode: v })}
+        options={[{ value: 'reps', label: t('Reps') }, { value: 'time', label: t('Time') }]} />
+      <SelectRow title={t('Warm-up load')} sheetTitle={t('Warm-up load')} value={row.loadMode}
+        onChange={v => patchWarmup(index, { loadMode: v })}
+        options={[{ value: 'fixed', label: t('Fixed weight') }, { value: 'percentage', label: t('% of theoretical 1RM') }, { value: 'workset', label: t('% of work-set') }]} />
+      {row.loadMode === 'percentage' || row.loadMode === 'workset' ? <div className="row cfgrow" style={{ marginBottom: 8 }}>
+        <Stepper label={t('Percent')} value={row.loadPercent || 50} step={5} decimal={false} onChange={v => patchWarmup(index, { loadPercent: v })} />
+        <Stepper label={row.mode === 'time' ? t('Seconds') : t('Reps')} value={row.mode === 'time' ? row.sec : row.reps} step={row.mode === 'time' ? 5 : 1} decimal={false}
+          onChange={v => patchWarmup(index, row.mode === 'time' ? { sec: v } : { reps: v })} />
+      </div> : <div className="row cfgrow" style={{ marginBottom: 8 }}>
+        <Stepper label={t('Weight ({0})', unit)} value={row.weight || 0} step={2.5} onChange={v => patchWarmup(index, { weight: v })} />
+        <Stepper label={row.mode === 'time' ? t('Seconds') : t('Reps')} value={row.mode === 'time' ? row.sec : row.reps} step={row.mode === 'time' ? 5 : 1} decimal={false}
+          onChange={v => patchWarmup(index, row.mode === 'time' ? { sec: v } : { reps: v })} />
+      </div>}
+      <Stepper label={t('Rest (s)')} value={row.restSec ?? c.warmupRestSec ?? 60} step={15} decimal={false} onChange={v => patchWarmup(index, { restSec: v })} />
+    </div>)}
+    <Button icon="plus" onClick={addWarmup}>{t('Add warm-up set')}</Button>
+    <div className="row cfgrow" style={{ marginBottom: 18 }}>
+      <Stepper label={t('Warm-up rest (s)')} value={c.warmupRestSec ?? 60} step={15} decimal={false} onChange={v => setC(x => ({ ...x, warmupRestSec: v }))} />
+      <Stepper label={t('Work rest (s)')} value={c.workRestSec ?? 90} step={15} decimal={false} onChange={v => setC(x => ({ ...x, workRestSec: v }))} />
+    </div>
+  </>
+}
+
+function WorkPhaseFields({ c, setC, mode, unit, ex, routine }) {
+  return <>
+    <div className="row cfgrow" style={{ margin: '8px 0' }}>
+      <Stepper label={t('Sets')} value={c.sets || 3} step={1} decimal={false} onChange={v => setC(x => ({ ...x, sets: v }))} />
+      <Stepper label={mode === 'time' ? t('Seconds') : t('Reps')} value={mode === 'time' ? (c.sec || 45) : (c.reps || 10)} step={mode === 'time' ? 5 : 1} decimal={false}
+        onChange={v => setC(x => (mode === 'time' ? { ...x, sec: v } : { ...x, reps: v }))} />
+    </div>
+    <div className="sect-b" style={{ marginBottom: 10 }}>
+      <SelectRow title={t('Target')} sheetTitle={t('Target')} value={c.kind === 'amrap' ? 'amrap' : 'fixed'}
+        onChange={v => setC(x => ({ ...x, kind: v }))}
+        options={[{ value: 'fixed', label: t('Fixed target') }, { value: 'amrap', label: t('AMRAP') }]} />
+    </div>
+    {c.kind === 'amrap' && <div className="row cfgrow" style={{ marginBottom: 12 }}>
+      {mode === 'reps'
+        ? <Stepper label={t('Minimum reps')} value={c.amrapMinReps || c.reps || 1} step={1} decimal={false} onChange={v => setC(x => ({ ...x, amrapMinReps: v }))} />
+        : <Stepper label={t('Maximum duration (optional)')} value={c.amrapMaxSec || 0} step={5} decimal={false} onChange={v => setC(x => ({ ...x, amrapMaxSec: v }))} />}
+    </div>}
+    <SelectRow title={t('Work load')} sheetTitle={t('Work load')} value={c.loadMode || 'fixed'}
+      onChange={v => setC(x => ({ ...x, loadMode: v }))}
+      options={[{ value: 'fixed', label: t('Fixed weight') }, { value: 'percentage', label: t('% of theoretical 1RM') }]} />
+    {c.loadMode === 'percentage' ? <div className="row cfgrow" style={{ marginBottom: 8 }}>
+      <Stepper label={t('Percent')} value={c.loadPercent || 50} step={5} decimal={false} onChange={v => setC(x => ({ ...x, loadPercent: v }))} />
+      <Stepper label={mode === 'time' ? t('Seconds') : t('Reps')} value={mode === 'time' ? (c.sec || 45) : (c.reps || 10)} step={mode === 'time' ? 5 : 1} decimal={false}
+        onChange={v => setC(x => (mode === 'time' ? { ...x, sec: v } : { ...x, reps: v }))} />
+    </div> : <div className="row cfgrow" style={{ marginBottom: 8 }}>
+      <Stepper label={t('Weight ({0})', unit)} value={c.weight || 0} step={2.5} onChange={v => setC(x => ({ ...x, weight: v }))} />
+      <Stepper label={mode === 'time' ? t('Seconds') : t('Reps')} value={mode === 'time' ? (c.sec || 45) : (c.reps || 10)} step={mode === 'time' ? 5 : 1} decimal={false}
+        onChange={v => setC(x => (mode === 'time' ? { ...x, sec: v } : { ...x, reps: v }))} />
+    </div>}
+    <Stepper label={t('Work rest (s)')} value={c.restSec ?? 90} step={15} decimal={false} onChange={v => setC(x => ({ ...x, restSec: v }))} />
+    <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={unit} />
+  </>
+}
+
+function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial, phaseOnly = false }) {
   const st = useStore(s => s.S)
   const cardio = isCardio(ex.id)
-  const [c, setC] = useState(existing || initial || defaultConfig(ex.id))
+  const [c, setC] = useState(() => {
+    const base = existing || initial || defaultConfig(ex.id)
+    const prescription = base.weightPrescription
+    const prog = (existing || initial) ? base.prog : (base.prog ?? st.defaultProg ?? undefined)
+    return {
+      ...base,
+      prog,
+      warmupRows: warmupRowsOf(base),
+      ...(base.kind === 'amrap' ? { kind: 'amrap' } : {}),
+      ...(base.kind === 'amrap' ? { amrapMinReps: base.amrapMinReps ?? base.minReps ?? base.reps } : {}),
+      ...(base.kind === 'amrap' && base.mode === 'time' && base.amrapMaxSec == null && base.cap > 0 ? { amrapMaxSec: base.cap } : {}),
+      ...(prescription?.kind === 'percentage' ? { loadMode: 'percentage', loadPercent: prescription.percent, loadFallback: prescription.fallbackWeight } : {})
+    }
+  })
   // Cardio keeps its own duration+speed form; the reps/time choice (issue #16) is offered for
   // everything else, which is where the gap was — planks, hangs, wall sits, loaded carries.
   const mode = cardio ? 'cardio' : modeOf({ ...c, id: ex.id })
@@ -496,6 +633,28 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
   const setMode = m => setC(x => ({ ...defaultConfig(ex.id, m), ...x, mode: m }))
   const save = () => {
     close()
+    if (phaseOnly === 'work') {
+      const load = c.loadMode === 'percentage'
+        ? { kind: 'percentage', percent: Math.max(1, Math.min(200, Math.round(Number(c.loadPercent)) || 50)), fallbackWeight: Math.max(0, Number(c.loadFallback) || 0) }
+        : { kind: 'fixed', weight: Math.max(0, Number(c.weight) || 0) }
+      onSave({
+        sets: Math.max(1, Math.round(c.sets) || 3),
+        mode: mode === 'time' ? 'time' : 'reps',
+        ...(mode === 'time'
+          ? { sec: Math.max(1, Math.round(c.sec) || 45), weight: load.weight }
+          : { reps: Math.max(1, Math.round(c.reps) || 10), weight: load.weight, ...(c.loadMode === 'percentage' ? { weightPrescription: load } : {}) }),
+        ...(c.restSec != null ? { restSec: Math.max(0, Math.round(c.restSec)) } : {})
+      })
+      return
+    }
+    if (phaseOnly) {
+      onSave({
+        warmup: warmupRowsFromEditor(c.warmupRows || []),
+        ...(c.warmupRestSec != null ? { warmupRestSec: Math.max(0, Math.round(c.warmupRestSec)) } : {}),
+        ...(c.workRestSec != null ? { workRestSec: Math.max(0, Math.round(c.workRestSec)) } : {})
+      })
+      return
+    }
     const sets = Math.max(1, Math.round(c.sets) || (cardio ? 1 : 3))
     // Only carry progression settings that differ from the inherited default, so a plan file
     // stays readable and "follow the routine" keeps meaning exactly that.
@@ -509,20 +668,44 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
     // rather than carrying a flag nothing downstream can read.
     const flags = {}
     if (bw !== isBodyweightEq(ex.id)) flags.bodyweight = bw
-    if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8) })
-    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...flags, ...prog })
+    const load = c.loadMode === 'percentage'
+      ? { kind: 'percentage', percent: Math.max(1, Math.min(200, Math.round(c.loadPercent) || 50)), fallbackWeight: Math.max(0, c.loadFallback || 0) }
+      : { kind: 'fixed', weight: Math.max(0, c.weight || 0) }
+    const warmup = (c.warmupRows || []).length ? warmupRowsFromEditor(c.warmupRows) : undefined
+    const common = {
+      ...(c.kind === 'amrap'
+        ? { kind: 'amrap', ...(mode === 'reps'
+          ? { amrapMinReps: Math.max(1, Math.round(Number(c.amrapMinReps ?? c.minReps ?? c.reps) || 1)) }
+          : (c.amrapMaxSec > 0 ? { amrapMaxSec: Math.max(1, Math.round(c.amrapMaxSec)) } : {})) }
+        : c.kind === 'fixed' ? { kind: 'fixed' } : {}),
+      ...(warmup ? { warmup } : {}),
+      ...(c.warmupRestSec != null ? { warmupRestSec: Math.max(0, Math.round(c.warmupRestSec)) } : {}),
+      ...(c.workRestSec != null ? { workRestSec: Math.max(0, Math.round(c.workRestSec)) } : {})
+    }
+    if (cardio) onSave({ sets, min: Math.max(1, Math.round(c.min) || 20), speed: Math.max(0, c.speed || 8), ...common })
+    else if (mode === 'time') onSave({ sets, mode: 'time', sec: Math.max(1, Math.round(c.sec) || 45), weight: Math.max(0, c.weight || 0), ...common, ...flags, ...prog })
     else {
       // A unilateral target is stored even: the split has to divide, and a typed 15 would
       // otherwise plan seven reps on one side and eight on the other, every session.
       const typed = Math.max(1, Math.round(c.reps) || 10)
       const reps = perSide ? Math.ceil(typed / 2) * 2 : typed
-      const out = { sets, mode: 'reps', reps, weight: Math.max(0, c.weight || 0), ...flags, ...(perSide ? { side: true } : {}), ...prog }
+      const out = { sets, mode: 'reps', reps, weight: load.weight, ...(c.loadMode === 'percentage' ? { weightPrescription: load } : {}), ...common, ...flags, ...(perSide ? { side: true } : {}), ...prog }
       if (policyFor({ ...c, id: ex.id }, routine, 'reps') === 'double') out.repsMin = Math.min(reps, Math.max(1, Math.round(c.repsMin) || Math.max(1, reps - 2)))
       // A ceiling below the working reps would tell you to add a set on day one.
       if (bw && !(out.weight > 0) && c.repsMax > 0) out.repsMax = Math.max(reps, Math.round(c.repsMax))
       onSave(out)
     }
   }
+  if (phaseOnly === 'work') return <>
+    <h3>{t('Work settings')}</h3>
+    <WorkPhaseFields c={c} setC={setC} mode={mode} unit={st.unit} ex={ex} routine={routine} />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+  </>
+  if (phaseOnly) return <>
+    <h3>{t('Warm-up settings')}</h3>
+    <WarmupFields c={c} setC={setC} mode={mode} unit={st.unit} phaseOnly />
+    <Button variant="primary" onClick={save}>{t('Save')}</Button>
+  </>
   return <>
     <h3 className="capitalize">{ex.n}</h3>
     <Media ex={ex} />
@@ -590,6 +773,7 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
         ? t('Reps climb to {0}, then a set is added and the reps start over. At {1} sets it asks you to add weight instead.', c.repsMax, MAX_BW_SETS)
         : t('Reps climb by one whenever every set was clean. Set a ceiling to add sets instead of reps forever.')}
     </div>}
+    {!cardio && <WarmupFields c={c} setC={setC} mode={mode} unit={st.unit} />}
     <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={st.unit} />
     <Button variant="primary" onClick={save}>{existing ? t('Save') : t('Add to routine')}</Button>
     {ex.custom && <><div style={{ height: 8 }} /><Button icon="pencil" onClick={() => { close(); customExSheet(ex) }}>{t('Edit or delete this exercise')}</Button></>}
@@ -597,6 +781,8 @@ function ExConfig({ ex, existing, onSave, onDelete, close, routine, initial }) {
   </>
 }
 export const exConfigSheet = (ex, existing, onSave, onDelete, routine, initial) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} initial={initial} onSave={onSave} onDelete={onDelete} routine={routine} close={close} />)
+export const warmupConfigSheet = (ex, existing, onSave, routine) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} onSave={onSave} routine={routine} phaseOnly close={close} />)
+export const workConfigSheet = (ex, existing, onSave) => ui().openSheet(close => <ExConfig ex={ex} existing={existing} onSave={onSave} phaseOnly="work" close={close} />)
 
 /* ============================ glyph picker ============================ */
 // Grouped by what the glyph means for a training day, so picking one is a scan
@@ -830,8 +1016,17 @@ export function beginWorkout(routineId, bw) {
   // right weight already on the screen instead of being told about it afterwards. `plan` is
   // kept on the entry purely so the workout can explain the number it chose.
   const entries = (r ? r.ex : []).map(cfg => {
-    const plan = nextPrescription(st, cfg, r)
-    return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
+    const phaseConfig = { ...cfg, ...(r?.phases ? { phases: r.phases } : {}) }
+    const hasWork = hasSelectedWorkPhase(phaseConfig)
+    const previous = lastEntryFor(st, cfg.id)
+    const increment = cfg.inc > 0 ? cfg.inc : defaultIncrement(cfg.id, st.unit)
+    const resolvedWeight = hasWork ? resolveTargetLoad(cfg, previous || [], increment) : 0
+    const percentage = hasWork && cfg.weightPrescription?.kind === 'percentage'
+    const resolved = percentage ? { ...cfg, weight: resolvedWeight, resolvedWeight } : { ...cfg }
+    const plan = hasWork ? nextPrescription(st, resolved, r) : { policy: 'off', kind: 'off' }
+    const sessionCfg = sessionConfigFor(phaseConfig, plan)
+    const workSets = hasWork ? applyPrescription(buildSets(st, sessionCfg), sessionPlanFor(resolved, plan)) : []
+    return { id: cfg.id, sg: cfg.sg, target: { ...sessionCfg }, plan, sets: prependWarmupSets(sessionCfg, workSets, previous || [], increment) }
   })
   update(s => {
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }

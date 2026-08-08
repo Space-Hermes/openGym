@@ -1,11 +1,14 @@
 // Pure helpers over the state object S (ported 1:1 from the vanilla app).
 import { todayISO, isoOf, weekKey, fmtNum } from './format.js'
 import { isCardio, isBodyweightEq } from './exercises.js'
+import { normalizePhase, modeForSet } from './workout-model.js'
 // i18n-core, not i18n: this file is imported by mcp/, which is plain Node with no Vite and no
 // React. i18n.js is the Vite half — import.meta.glob over the locale packs, useSyncExternalStore
 // for the hook — and it re-exports this very `t` from core, so nothing changes here except what
 // gets dragged along behind it.
 import { t } from './i18n-core.js'
+
+const phaseOf = (set, fallback = 'work') => normalizePhase(set, fallback)
 
 // How an exercise is logged (issue #16). This used to be derived from the body part alone,
 // which meant a plank or a farmer's carry could only be timed by filing it under cardio.
@@ -18,6 +21,8 @@ import { t } from './i18n-core.js'
 export function modeOf(cfg) {
   const m = cfg && cfg.mode
   if (m === 'reps' || m === 'time' || m === 'cardio') return m
+  if (cfg && (cfg.sec != null || cfg.seconds != null || cfg.durationSec != null)) return 'time'
+  if (cfg && (cfg.min != null || cfg.speed != null)) return 'cardio'
   return isCardio(cfg && cfg.id) ? 'cardio' : 'reps'
 }
 export const isTimed = cfg => modeOf(cfg) === 'time'
@@ -97,7 +102,8 @@ const effortTail = s => {
 // entry or a workout entry); passing an id alone keeps the old body-part behaviour.
 export function setLabel(id, s, cfg) {
   const c = cfg || { id }
-  const mode = modeOf(c)
+  const rowSignalsMode = s && (s.mode || s.sec != null || s.seconds != null || s.durationSec != null || s.min != null || s.speed != null)
+  const mode = rowSignalsMode ? modeForSet(s, c) : modeOf(c)
   if (mode === 'cardio') return `${s.min || 0} min @ ${fmtNum(s.speed || 0)} km/h`
   if (mode === 'time') return fmtSec(s.sec) + (s.w > 0 ? ` · ${fmtNum(s.w)}` : '')
   // Bodyweight reads as what you did — "12", or "+10 × 12" once there is a belt involved —
@@ -142,13 +148,16 @@ export function cleanupSg(ex) {
   })
 }
 
-export function lastEntryFor(S, exId) {
+export function lastEntryFor(S, exId, desiredMode) {
   for (let i = S.workouts.length - 1; i >= 0; i--) {
-    const en = S.workouts[i].entries.find(e => e.id === exId)
-    // `target` is what the session prescribed; finished workouts carry it so labels and the
-    // progression engine can read a session back the way it was logged. Older workouts have
-    // none — modeOf() falls back to the body part for them, which is what they were.
-    if (en && en.sets.some(s => s.done)) return { d: S.workouts[i].d, sets: en.sets.filter(s => s.done), target: en.target || null }
+    const workout = S.workouts[i]
+    const en = workout.entries.find(e => e.id === exId)
+    const target = en?.target || en || {}
+    const sets = (en?.sets || []).filter(set =>
+      phaseOf(set) === 'work' && set.done === true
+      && (!desiredMode || modeForSet(set, target) === desiredMode)
+    )
+    if (sets.length) return { d: workout.d, sets, target: en.target || null }
   }
   return null
 }
@@ -170,10 +179,13 @@ export function freestyleConfig(S, cfg) {
 export function bestWeightFor(S, exId) {
   let best = 0
   S.workouts.forEach(w => w.entries.forEach(e => {
-    if (e.id === exId) {
-      e.sets.forEach(s => { if (s.done && s.w > best) best = s.w })
-      if (e.topW && e.topW > best) best = e.topW
-    }
+    if (e.id !== exId) return
+    const target = e.target || e
+    const workRows = (e.sets || []).filter(set => phaseOf(set) === 'work')
+    const repsRows = workRows.filter(set => set.done === true && modeForSet(set, target) === 'reps')
+    repsRows.forEach(set => { if (Number(set.w) > best) best = Number(set.w) })
+    const hasNonRepsWork = workRows.some(set => modeForSet(set, target) !== 'reps')
+    if (modeForSet({}, target) === 'reps' && !hasNonRepsWork && Number(e.topW) > best) best = Number(e.topW)
   }))
   return best
 }
@@ -189,9 +201,9 @@ export function effectiveRoutine(S, iso) {
   return id ? S.routines.find(r => r.id === id) || null : null
 }
 export function buildSets(S, cfg, options = {}) {
-  const last = lastEntryFor(S, cfg.id)
   const n = Math.max(1, cfg.sets || 1)
   const mode = modeOf(cfg)
+  const last = lastEntryFor(S, cfg.id, mode)
   const preferLast = !!options.preferLast
   const sets = []
   // Last time's set at the same position, falling back to its final set when the plan grew.
@@ -276,10 +288,10 @@ export function streakWeeks(S) {
  * undone take the new value (null deletes the key). Done sets are never rewritten.
  */
 export function cascadeWeight(rows, from, value) {
-  const warm = !!rows[from]?.warmup
+  const warm = phaseOf(rows[from]) === 'warmup'
   const next = rows.slice()
   for (let j = from + 1; j < next.length; j++) {
-    if (!!next[j].warmup === warm && !next[j].done) {
+    if ((phaseOf(next[j]) === 'warmup') === warm && !next[j].done) {
       if (value == null) delete next[j].w
       else next[j].w = value
     }
@@ -289,14 +301,14 @@ export function cascadeWeight(rows, from, value) {
 
 /** Insert a warm-up row before the first work row, copying the preceding warm-up's values. */
 export function insertWarmupRow(rows, mode, target) {
-  const firstWork = rows.findIndex(x => !x.warmup)
+  const firstWork = rows.findIndex(x => phaseOf(x) === 'work')
   const at = firstWork === -1 ? rows.length : firstWork
   const l = rows[at - 1] || rows[rows.length - 1]
   const warm = mode === 'cardio'
-    ? { min: l ? l.min : (target.min || 20), speed: l ? l.speed : (target.speed || 8), done: false, warmup: true }
+    ? { min: l ? l.min : (target.min || 20), speed: l ? l.speed : (target.speed || 8), done: false, warmup: true, phase: 'warmup' }
     : mode === 'time'
-      ? { sec: l ? l.sec : (target.sec || 45), w: l ? (l.w || 0) : (target.weight || 0), done: false, warmup: true }
-      : { w: l ? l.w : 0, r: l ? l.r : target.reps, done: false, warmup: true }
+      ? { sec: l ? l.sec : (target.sec || 45), w: l ? (l.w || 0) : (target.weight || 0), done: false, warmup: true, phase: 'warmup' }
+      : { w: l ? l.w : 0, r: l ? l.r : target.reps, done: false, warmup: true, phase: 'warmup' }
   const next = rows.slice()
   next.splice(at, 0, warm)
   return next
@@ -313,6 +325,6 @@ export function removeRowAt(rows, i) {
 /** Completed non-warm-up sets across a workout's entries. */
 export function workSetsDone(w) {
   return (w?.entries || []).reduce(
-    (n, e) => n + (e.sets || []).filter(s => s.done && !s.warmup).length, 0,
+    (n, e) => n + (e.sets || []).filter(s => s.done && phaseOf(s) === 'work').length, 0,
   )
 }

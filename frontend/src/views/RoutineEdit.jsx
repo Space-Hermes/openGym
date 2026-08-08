@@ -10,9 +10,11 @@ import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet } from '../she
 import Icon from '../components/Icon.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { Button, SelectRow } from '../components/ui.jsx'
+import Stepper from '../components/Stepper.jsx'
 import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
+import { normalizePhaseList } from '../lib/workout-model.js'
 
 export default function RoutineEdit() {
   const nav = useNavigate()
@@ -54,6 +56,22 @@ export default function RoutineEdit() {
     </div>
     <div className="small dim" style={{ margin: '-10px 2px 16px' }}>
       {t('Applies to every exercise in this routine that does not set its own rule.')}
+    </div>
+    <div className="sect-b" style={{ marginBottom: 12 }}>
+      <SelectRow title={t('Routine phases')} sheetTitle={t('Routine phases')} value={Array.isArray(r.phases) ? r.phases.join(',') : ''}
+        onChange={value => update(s => {
+          const routine = s.routines.find(x => x.id === id)
+          const phases = normalizePhaseList(value)
+          if (phases == null) delete routine.phases
+          else routine.phases = phases
+        })}
+        options={[{ value: '', label: t('Automatic') }, { value: 'warmup', label: t('Warm-up') }, { value: 'work', label: t('Work') }, { value: 'warmup,work', label: t('Warm-up + work') }]} />
+    </div>
+    <div className="row cfgrow" style={{ marginBottom: 18 }}>
+      <Stepper label={t('Warm-up rest (s)')} value={r.warmupRestSec ?? 60} step={15} decimal={false}
+        onChange={v => update(s => { s.routines.find(x => x.id === id).warmupRestSec = v })} />
+      <Stepper label={t('Work rest (s)')} value={r.workRestSec ?? 90} step={15} decimal={false}
+        onChange={v => update(s => { s.routines.find(x => x.id === id).workRestSec = v })} />
     </div>
 
     {r.ex.length ? <div className="list">{r.ex.map((e, i) => {

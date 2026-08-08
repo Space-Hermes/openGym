@@ -3,17 +3,19 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, freestyleConfig, defaultConfig, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, cascadeWeight, insertWarmupRow, removeRowAt } from '../lib/history.js'
+import { effectiveRoutine, lastEntryFor, bestWeightFor, buildSets, freestyleConfig, defaultConfig, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
 import { api } from '../lib/api.js'
 import Media from '../components/Media.jsx'
-import { startFlow, exercisePicker, exConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
+import { startFlow, exercisePicker, exConfigSheet, warmupConfigSheet, workConfigSheet, exerciseDetailSheet, topWeightSheet, finishWorkout, workoutCompleteSheet, confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
-import { nextPrescription, applyPrescription } from '../lib/progression.js'
+import { nextPrescription, applyPrescription, defaultIncrement } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
+import { modeForSet, normalizePhase } from '../lib/workout-model.js'
+import { restSecondsFor, prependWarmupSets, applyWarmupConfigToEntry, applyWorkConfigToEntry, warmupConfigForEntry, addSetForEntry, removeActiveSet, navigateActiveExercise, setTableColumnsForMode, tableModesRequirePerRowHeaders, shouldConfirmWorkingWeight, hasSelectedWorkPhase, sessionConfigFor, sessionPlanFor } from '../lib/workout-runtime.js'
 
 /* ---------- start chooser (no active workout) ---------- */
 function StartChooser() {
@@ -53,8 +55,18 @@ function Elapsed({ start }) {
   return <span>{t}</span>
 }
 
+function PhaseDivider({ phase, onSettings }) {
+  const warmup = phase === 'warmup'
+  return <div className={'phase-divider ' + phase}>
+    <span className="phase-label">{t(warmup ? 'Warm-up' : 'Work')}</span>
+    <span className="phase-line" />
+    <button className="iconbtn phase-settings" aria-label={t(warmup ? 'Warm-up settings' : 'Work settings')} title={t(warmup ? 'Warm-up settings' : 'Work settings')}
+      onClick={onSettings}><Icon name="gear" /></button>
+  </div>
+}
+
 /* ---------- one exercise block (reps: weight×reps · time: a held duration · cardio: duration+speed) ---------- */
-function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onRemoveSetAt, onStartTimed }) {
+function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemoveSet, onAddWarmup, onRemoveWarmup, onWarmupSettings, onWorkSettings, onStartTimed }) {
   const S = useStore(s => s.S)
   const working = useUI(s => s.work)
   const entry = S.active.entries[entryIdx]
@@ -75,22 +87,30 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   const cfg = { ...(entry.target || {}), id: entry.id }
   const bw = !cardio && isBw(cfg)
   const added = bw && entry.sets.some(s => s.w > 0)
-  const loadCol = { f: 'w', step: 2.5, dec: true, hd: bw ? t('Added ({0})', S.unit) : t('Weight ({0})', S.unit) }
-  // The reps column is the total in every mode, unilateral included — the stepper walks in
-  // twos there so the number you land on is one you can actually split evenly.
-  const repCol = { f: 'r', step: repStep(cfg), dec: false, hd: t('Reps') }
-  const col1 = cardio ? { f: 'min', step: 1, dec: false, hd: t('Duration (min)') }
-    : timed ? { f: 'sec', step: 5, dec: false, hd: t('Seconds') }
-      : (bw && !added) ? repCol : loadCol
-  const col2 = cardio ? { f: 'speed', step: 0.5, dec: true, hd: t('Speed (km/h)') }
-    : timed ? ((bw && !added) ? null : loadCol)
-      : (bw && !added) ? null : repCol
   // Effort (RIR or RPE, whichever the profile logs) only makes sense for weighted rep sets,
   // not cardio/timed holds, and is opt-in since it adds a third stepper to every row. `opt`
   // because an unlogged effort is not the same as 0 — RIR 0 says the set went to failure.
   const kind = effortOf(S)
   const eff = EFFORT[kind]
-  const col3 = mode === 'reps' && eff ? { ...eff, eff: kind, dec: true, opt: true, hd: t(eff.hd) } : null
+  const columnsForRow = rowMode => {
+    const base = setTableColumnsForMode(rowMode, S.unit)
+    const hideLoad = bw && !added && rowMode !== 'cardio'
+    const primary = rowMode === 'reps' && hideLoad
+      ? { ...base.secondary, step: repStep(cfg) }
+      : rowMode === 'reps' && bw
+        ? { ...base.primary, label: 'Added' }
+        : base.primary
+    const secondary = hideLoad ? null : base.secondary
+    const effort = rowMode === 'reps' && eff ? { ...eff, eff: kind, dec: true, opt: true } : null
+    return {
+      ...base,
+      primary: { ...primary, hd: primary.label === 'Weight' ? t('Weight ({0})', S.unit) : primary.label === 'Added' ? t('Added ({0})', S.unit) : t(primary.label) },
+      secondary: secondary && { ...secondary, hd: secondary.label === 'Weight' ? t('Weight ({0})', S.unit) : t(secondary.label) },
+      effort: effort && { ...effort, hd: t(effort.hd) }
+    }
+  }
+  const columns = columnsForRow(mode)
+  const perRowHeaders = tableModesRequirePerRowHeaders(entry)
   // The effort column walks its own scale — see stepEffort. Weight and reps step up from 0
   // with no ceiling, as they always did.
   const bump = (s, i, col, dir) => {
@@ -129,34 +149,40 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       <span>{t(...plan.why)}</span>
     </div>}
     <div className="card" style={{ marginTop: 10, marginBottom: 0 }}>
-      {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
-      <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
+      {columns && !perRowHeaders && <div className={'sethead' + (columns.effort ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{columns.primary.hd}</span>{columns.secondary && <span className="r-sp">{columns.secondary.hd}</span>}{columns.effort && <span className="eff-sp">{columns.effort.hd}</span>}{columns.timed && <span className="ck-sp" />}<span className="ck-sp" /></div>}
       {entry.sets.map((s, i) => {
-        const warmBefore = i > 0 && !!entry.sets[i - 1].warmup
-        const isFirstWarmup = !!s.warmup && !warmBefore
-        // Numbering restarts per phase: with two warm-ups the first work set reads 1, not 3.
-        const phaseNum = entry.sets.slice(0, i + 1).filter(x => (x.warmup === true) === (s.warmup === true)).length
-        return <div key={i}>
-          {isFirstWarmup && <div className="setph">{t('Warm-up')}</div>}
-          {!s.warmup && warmBefore && <div className="setsep" />}
-          <div className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
+        const rowMode = modeForSet(s, entry.target || entry) || mode
+        const rowColumns = columnsForRow(rowMode)
+        const phase = normalizePhase(s, 'work')
+        const prevPhase = i > 0 ? normalizePhase(entry.sets[i - 1], 'work') : null
+        const rowClass = 'setrow ' + phase + (s.done ? ' done' : '') + (rowColumns.effort ? ' eff3' : '')
+        const phaseStart = prevPhase !== phase
+        const noWarmups = !entry.sets.some(x => normalizePhase(x, 'work') === 'warmup')
+        const phaseNum = entry.sets.slice(0, i + 1).filter(x => normalizePhase(x, 'work') === phase).length
+        return <div key={i} className={perRowHeaders ? 'setgroup' : undefined}>
+          {phaseStart && phase === 'warmup' && <PhaseDivider phase="warmup" onSettings={onWarmupSettings} />}
+          {phaseStart && phase === 'work' && <>
+            {noWarmups && <PhaseDivider phase="warmup" onSettings={onWarmupSettings} />}
+            <div className="row setbtns" style={{ marginBottom: 6 }}>
+              <Button className="warmbtn" size="sm" icon="plus" onClick={onAddWarmup}>{t('Add warm-up set')}</Button>
+              <Button className="warmbtn" size="sm" icon="minus" disabled={!entry.sets.some(x => normalizePhase(x, 'work') === 'warmup')} onClick={onRemoveWarmup}>{t('Remove warm-up set')}</Button>
+            </div>
+            <PhaseDivider phase="work" onSettings={onWorkSettings} />
+          </>}
+          {perRowHeaders && <div className={'sethead' + (rowColumns.effort ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{rowColumns.primary.hd}</span>{rowColumns.secondary && <span className="r-sp">{rowColumns.secondary.hd}</span>}{rowColumns.effort && <span className="eff-sp">{rowColumns.effort.hd}</span>}{rowColumns.timed && <span className="ck-sp" />}<span className="ck-sp" /></div>}
+          <div className={rowClass}>
             <div className="n">{phaseNum}</div>
-            {cell(s, i, col1, 'w')}
-            {col2 && cell(s, i, col2, 'r')}
-            {col3 && cell(s, i, col3, 'eff')}
-            {/* A timed set is started, not typed: the timer counts the hold down and checks the
-                set off itself. The checkbox stays for anyone who timed it on their own watch. */}
-            {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
+            {cell(s, i, rowColumns.primary, 'w')}
+            {rowColumns.secondary && cell(s, i, rowColumns.secondary, 'r')}
+            {rowColumns.effort && cell(s, i, rowColumns.effort, 'eff')}
+            {rowColumns.timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
               onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-            {s.warmup && <button className="iconbtn" style={{ fontSize: 13 }} aria-label={t('Remove set')}
-              disabled={entry.sets.length <= 1} onClick={() => onRemoveSetAt(i)}><Icon name="xmark" /></button>}
             <Check checked={s.done} onChange={() => onToggle(i)} />
           </div>
         </div>
       })}
       <div style={{ height: 8 }} />
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        <Button size="sm" icon="flame" onClick={onAddWarmup}>{t('Add warm-up set')}</Button>
         <Button size="sm" icon="minus" disabled={entry.sets.length <= 1} onClick={onRemoveSet}>{t('Remove set')}</Button>
         <Button size="sm" icon="plus" onClick={onAddSet}>{t('Add set')}</Button>
       </div>
@@ -188,23 +214,76 @@ function ActiveWorkout() {
     // Changing a weight cascades to the following sets of the same phase, so a
     // heavier bar carries through the set instead of retyping every row.
     if (field === 'w') {
-      e.sets = cascadeWeight(e.sets, i, v)
+      const phase = normalizePhase(e.sets[i], 'work')
+      for (let j = i + 1; j < e.sets.length; j++) {
+        if (normalizePhase(e.sets[j], 'work') !== phase || e.sets[j].done) continue
+        if (v == null) delete e.sets[j].w
+        else e.sets[j].w = v
+      }
     }
   })
-  const modeAt = idx => modeOf({ ...(A.entries[idx].target || {}), id: A.entries[idx].id })
-  const addSet = idx => mutEntry(idx, e => {
-    const l = e.sets[e.sets.length - 1]
-    const m = modeOf({ ...(e.target || {}), id: e.id })
-    if (m === 'cardio') e.sets.push({ min: l ? l.min : (e.target.min || 20), speed: l ? l.speed : (e.target.speed || 8), done: false })
-    else if (m === 'time') e.sets.push({ sec: l ? l.sec : (e.target.sec || 45), w: l ? (l.w || 0) : (e.target.weight || 0), done: false })
-    else e.sets.push({ w: l ? l.w : 0, r: l ? l.r : e.target.reps, done: false })
-  })
+  const modeAt = (idx, setIdx) => modeForSet(A.entries[idx].sets[setIdx], A.entries[idx].target || A.entries[idx])
+  const addSet = idx => mutEntry(idx, e => { e.sets.push(addSetForEntry(e)) })
   const removeSet = idx => mutEntry(idx, e => { if (e.sets.length > 1) e.sets.pop() })
   const addWarmup = idx => mutEntry(idx, e => {
-    const m = modeOf({ ...(e.target || {}), id: e.id })
-    e.sets = insertWarmupRow(e.sets, m, e.target || {})
+    const firstWork = e.sets.findIndex(x => normalizePhase(x, 'work') === 'work')
+    const at = firstWork === -1 ? e.sets.length : firstWork
+    const workSets = e.sets.filter(x => normalizePhase(x, 'work') === 'work')
+    const existingWarmup = [...e.sets].reverse().find(set => normalizePhase(set, 'work') === 'warmup')
+    const configured = Array.isArray(e.target?.warmup) ? e.target.warmup : []
+    const template = configured[configured.length - 1] || (existingWarmup
+      ? { phase: 'warmup', mode: modeForSet(existingWarmup, e.target || e), ...(existingWarmup.sec != null ? { sec: existingWarmup.sec } : { reps: existingWarmup.r }), weightPrescription: { kind: 'fixed', weight: existingWarmup.w || 0 } }
+      : (() => {
+          const fallback = addSetForEntry(e)
+          return { phase: 'warmup', mode: modeForSet(fallback, e.target || e), ...(fallback.sec != null ? { sec: fallback.sec } : { reps: fallback.r }), weightPrescription: { kind: 'fixed', weight: fallback.w || 0 } }
+        })())
+    const generated = prependWarmupSets({ ...e.target, phases: ['warmup'], warmup: [{ ...template, phase: 'warmup' }] }, workSets, [], e.target?.inc || defaultIncrement(e.id, S.unit))
+      .find(x => normalizePhase(x, 'work') === 'warmup')
+    e.sets.splice(at, 0, generated || { ...template, phase: 'warmup', done: false })
+    e.target = { ...(e.target || {}), warmup: warmupConfigForEntry(e).warmup }
   })
-  const removeSetAt = (idx, i) => mutEntry(idx, e => { e.sets = removeRowAt(e.sets, i) })
+  const removeWarmup = idx => {
+    const entry = A.entries[idx]
+    const setIdx = entry?.sets?.findLastIndex(set => normalizePhase(set, 'work') === 'warmup') ?? -1
+    if (setIdx < 0 || entry.sets.length <= 1) return
+    mutEntry(idx, e => {
+      e.sets.splice(setIdx, 1)
+      e.target = { ...(e.target || {}), warmup: warmupConfigForEntry(e).warmup }
+    })
+  }
+  const openWorkSettings = idx => {
+    const entry = useStore.getState().S.active?.entries?.[idx]
+    if (!entry) return
+    const exercise = exOr(entry.id)
+    workConfigSheet(exercise, entry.target || entry, config => {
+      update(s => {
+        const activeEntry = s.active?.entries?.[idx]
+        if (!activeEntry) return
+        const previous = lastEntryFor(s, activeEntry.id)
+        const increment = activeEntry.target?.inc > 0 ? activeEntry.target.inc : defaultIncrement(activeEntry.id, s.unit)
+        const updated = applyWorkConfigToEntry(activeEntry, config, previous || [], increment)
+        activeEntry.target = updated.target
+        activeEntry.sets = updated.sets
+      }, true)
+    })
+  }
+  const openWarmupSettings = idx => {
+    const entry = useStore.getState().S.active?.entries?.[idx]
+    if (!entry) return
+    const exercise = exOr(entry.id)
+    const routine = S.routines.find(r => r.id === A.routineId)
+    warmupConfigSheet(exercise, warmupConfigForEntry(entry), config => {
+      update(s => {
+        const activeEntry = s.active?.entries?.[idx]
+        if (!activeEntry) return
+        const previous = lastEntryFor(s, activeEntry.id)
+        const increment = activeEntry.target?.inc > 0 ? activeEntry.target.inc : defaultIncrement(activeEntry.id, s.unit)
+        const updated = applyWarmupConfigToEntry(activeEntry, config, previous || [], increment)
+        activeEntry.target = updated.target
+        activeEntry.sets = updated.sets
+      }, true)
+    }, routine)
+  }
 
   // A timed set is held, not typed. The work timer records what was actually held — an early
   // finish logs 0:38 of a 0:45 target rather than crediting the full prescription — and then
@@ -219,7 +298,7 @@ function ActiveWorkout() {
   }
 
   const toggle = (idx, i) => {
-    const m = modeAt(idx)
+    const m = modeAt(idx, i)
     const cardioEntry = m === 'cardio'
     const isLastUnit = unitIdx >= units.length - 1
     let askTop = false, exJustDone = false, workoutDone = false
@@ -229,13 +308,15 @@ function ActiveWorkout() {
         beep(S.sound, 1040, 0.12); vibrate(30)
         const isLastExInUnit = idx === unit[unit.length - 1]
         const unitDone = unit.every(ui => (ui === idx ? e : A.entries[ui]).sets.every(x => x.done))
-        if (isLastExInUnit && !unitDone) startRest(S.restSec)
+        const routine = S.routines.find(r => r.id === A.routineId)
+        const rest = restSecondsFor(e.sets[i], e.target || e, routine || {}, S.restSec)
+        if (isLastExInUnit && !unitDone) startRest(rest)
         else if (unitDone) stopRest()
         if (unitDone && isLastUnit) workoutDone = true      // last exercise's last set → done
         // Only loaded reps training has a "working weight" worth confirming — a bodyweight
         // plank has nothing to put in that slider, and neither does a set of push-ups
         // (issue #32: the fewest taps that still record what happened).
-        const loaded = m === 'reps' && !(isBw({ ...(e.target || {}), id: e.id }) && !e.sets.some(x => x.w > 0))
+        const loaded = m === 'reps' && shouldConfirmWorkingWeight(e, m)
         if (e.sets.every(x => x.done)) { exJustDone = true; if (loaded && !e.asked) { e.asked = true; askTop = true } }
       }
     })
@@ -290,18 +371,18 @@ function ActiveWorkout() {
           {unit.map((idx, k) => <div key={idx} className="ss-ex">
             {k > 0 && <div className="ss-amp">+</div>}
             <ExerciseBlock entryIdx={idx} compact
-              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onAddWarmup={() => addWarmup(idx)} onRemoveSetAt={i => removeSetAt(idx, i)} onStartTimed={i => startTimed(idx, i)} />
+              onToggle={i => toggle(idx, i)} onField={(i, f, v) => setField(idx, i, f, v)} onAddSet={() => addSet(idx)} onRemoveSet={() => removeSet(idx)} onAddWarmup={() => addWarmup(idx)} onRemoveWarmup={() => removeWarmup(idx)} onWarmupSettings={() => openWarmupSettings(idx)} onWorkSettings={() => openWorkSettings(idx)} onStartTimed={i => startTimed(idx, i)} />
           </div>)}
         </div>
       ) : (
-        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onRemoveSetAt={i => removeSetAt(cur, i)} onStartTimed={i => startTimed(cur, i)} />
+        <ExerciseBlock entryIdx={cur} onToggle={i => toggle(cur, i)} onField={(i, f, v) => setField(cur, i, f, v)} onAddSet={() => addSet(cur)} onRemoveSet={() => removeSet(cur)} onAddWarmup={() => addWarmup(cur)} onRemoveWarmup={() => removeWarmup(cur)} onWarmupSettings={() => openWarmupSettings(cur)} onWorkSettings={() => openWorkSettings(cur)} onStartTimed={i => startTimed(cur, i)} />
       )}
     </> : <div className="empty"><div className="ico"><Icon name="shuffle" /></div>{t('Freestyle workout — add your first exercise.')}</div>}
 
     <div style={{ height: 12 }} />
     <div className="row">
-      <Button icon="chevronLeft" disabled={unitIdx <= 0} onClick={() => update(s => { s.active.cur = units[unitIdx - 1][0] })}>{t('Prev')}</Button>
-      <Button trailingIcon="chevronRight" disabled={unitIdx < 0 || unitIdx >= units.length - 1} onClick={() => update(s => { s.active.cur = units[unitIdx + 1][0] })}>{t('Next')}</Button>
+      <Button icon="chevronLeft" disabled={unitIdx <= 0} onClick={() => update(s => navigateActiveExercise(s.active, units[unitIdx - 1][0], stopRest))}>{t('Prev')}</Button>
+      <Button trailingIcon="chevronRight" disabled={unitIdx < 0 || unitIdx >= units.length - 1} onClick={() => update(s => navigateActiveExercise(s.active, units[unitIdx + 1][0], stopRest))}>{t('Next')}</Button>
     </div>
     <div style={{ height: 10 }} />
     <Button onClick={() => exercisePicker(ex => {
@@ -312,9 +393,16 @@ function ActiveWorkout() {
       const seed = freestyle ? freestyleConfig(S, { id: ex.id, ...defaultConfig(ex.id) }) : null
       exConfigSheet(ex, null, cfg => update(s => {
         const full = { ...cfg, id: ex.id }
-        const plan = freestyle ? null : nextPrescription(s, full, s.routines.find(r => r.id === s.active.routineId))
-        const sets = buildSets(s, full, freestyle ? { preferLast: true } : undefined)
-        s.active.entries.push({ id: ex.id, target: { ...cfg }, plan, sets: freestyle ? sets : applyPrescription(sets, plan) })
+        const routineConfig = s.routines.find(r => r.id === s.active.routineId)
+        const phaseConfig = { ...full, ...(routineConfig?.phases ? { phases: routineConfig.phases } : {}) }
+        const hasWork = freestyle || hasSelectedWorkPhase(phaseConfig)
+        const plan = freestyle ? null : (hasWork ? nextPrescription(s, phaseConfig, routineConfig) : { policy: 'off', kind: 'off' })
+        const target = sessionConfigFor(phaseConfig, plan)
+        const baseSets = hasWork ? buildSets(s, target, freestyle ? { preferLast: true } : undefined) : []
+        const workSets = freestyle ? baseSets : applyPrescription(baseSets, sessionPlanFor(target, plan))
+        const increment = cfg.inc > 0 ? cfg.inc : defaultIncrement(ex.id, s.unit)
+        const sets = prependWarmupSets(target, workSets, lastEntryFor(s, ex.id)?.sets || [], increment)
+        s.active.entries.push({ id: ex.id, target, plan, sets })
         s.active.cur = s.active.entries.length - 1
       }), null, routine, seed)
     })} icon="plus">{t('Add exercise')}</Button>

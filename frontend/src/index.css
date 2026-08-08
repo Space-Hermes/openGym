@@ -562,6 +562,12 @@ h4.sec{
 .setph{margin:8px 0 2px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);display:flex;align-items:center;gap:10px}
 .setph::after{content:'';flex:1;height:1px;background:var(--sep)}
 .setsep{height:1px;background:var(--sep);margin:9px 0}
+.phase-divider{display:flex;align-items:center;gap:8px;margin:14px 0 6px;color:var(--dim);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.phase-divider.work{color:var(--acc)}
+.phase-line{height:1px;flex:1;background:var(--sep)}
+.phase-settings{font-size:13px;color:inherit}
+.setbtns{gap:6px;flex-wrap:wrap}
+.warmbtn{color:var(--dim)}
 .setrow .n{
   width:24px;height:24px;border-radius:50%;background:var(--surface-2);color:var(--label-2);
   display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;flex:none;
