@@ -3,7 +3,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf } from './lib/exercises.js'
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
-import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone } from './lib/history.js'
+import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone, workRowsForMode, shouldConfirmWorkingWeight, bestFullSetWeight } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, getLang, INSTR_LANGS } from './lib/i18n.js'
 import { nav } from './lib/nav.js'
@@ -135,17 +135,35 @@ export function bwSheet(opts = {}) {
 // the one action where "just try it" is expensive — it's someone's entire training
 // history — so the numbers, the unit conversion and the exercises we couldn't recognise
 // are all on screen before the confirm button.
-function ImportSummary({ parsed, close }) {
+const UNKNOWN_WEIGHT_ROWS_MESSAGE = '{0} weighted rows omitted because their unit is unknown.'
+const unknownWeightWarning = parsed => {
+  const count = Number(parsed?.unknownWeightRows) || 0
+  return count > 0 ? t(UNKNOWN_WEIGHT_ROWS_MESSAGE, count) : null
+}
+
+function ImportSummary({ parsed, close, raw }) {
   const st = useStore(s => s.S)
-  const isBW = parsed.kind === 'bodyweight'
+  const [cur, setCur] = useState(parsed)
+  const [unit, setUnit] = useState(st.unit)
+  // The file's own unit is rarely written anywhere - let the user state it, then
+  // re-parse with that assumption so lb files convert correctly on import.
+  const changeUnit = v => {
+    setUnit(v)
+    if (!raw) return
+    try {
+      const p = parseImport(raw, { unit: v })
+      if (!p.error) setCur(p)
+    } catch (e) { /* keep the current parse */ }
+  }
+  const isBW = cur.kind === 'bodyweight'
   const have = isBW
-    ? parsed.bodyweight.filter(b => st.bodyweight.some(x => x.d === b.d)).length
-    : parsed.workouts.filter(w => st.workouts.some(x => x.d === w.d)).length
-  const fresh = (isBW ? parsed.bodyweight.length : parsed.workouts.length) - have
+    ? cur.bodyweight.filter(b => st.bodyweight.some(x => x.d === b.d)).length
+    : cur.workouts.filter(w => st.workouts.some(x => x.d === w.d)).length
+  const fresh = (isBW ? cur.bodyweight.length : cur.workouts.length) - have
 
   const doImport = () => {
     let res
-    update(s => { res = mergeImport(s, parsed) })
+    update(s => { res = mergeImport(s, cur) })
     close()
     toast(isBW
       ? t('{0} weigh-ins imported', res.added)
@@ -154,16 +172,21 @@ function ImportSummary({ parsed, close }) {
 
   return <>
     <h3>{parsed.source ? t('Import from {0}', parsed.source) : t('Import history')}</h3>
+    <div className="row" style={{ gap: 8, alignItems: 'center', marginBottom: 10 }}>
+      <span className="small dim">{t('Weights in this file are in')}</span>
+      <Segmented className="seg-inline" options={[{ value: 'kg', label: 'kg' }, { value: 'lb', label: 'lb' }]}
+        value={unit} onChange={changeUnit} />
+    </div>
     <div className="muted small" style={{ marginBottom: 12 }}>
-      {parsed.from === parsed.to ? fmtDate(parsed.from, true) : fmtDate(parsed.from, true) + ' – ' + fmtDate(parsed.to, true)}
+      {cur.from === cur.to ? fmtDate(cur.from, true) : fmtDate(cur.from, true) + ' – ' + fmtDate(cur.to, true)}
     </div>
 
     <div className="tiles" style={{ textAlign: 'left' }}>
       {isBW ? <>
-        <div className="tile"><div className="l">{t('Weigh-ins')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{parsed.bodyweight.length}</div></div>
+        <div className="tile"><div className="l">{t('Weigh-ins')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{cur.bodyweight.length}</div></div>
         <div className="tile"><div className="l">{t('New')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{fresh}</div></div>
       </> : <>
-        <div className="tile"><div className="l">{t('Workouts')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{parsed.workouts.length}</div></div>
+        <div className="tile"><div className="l">{t('Workouts')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{cur.workouts.length}</div></div>
         <div className="tile"><div className="l">{t('Sets')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{parsed.sets}</div></div>
         <div className="tile"><div className="l">{t('Exercises matched')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{parsed.matched}</div></div>
         <div className="tile"><div className="l">{t('Added as your own')}</div><div className="v" style={{ fontSize: '1.1rem' }}>{parsed.created}</div></div>
@@ -189,11 +212,14 @@ function ImportSummary({ parsed, close }) {
         : '{0} sets bring an {1} with them.',
       parsed.rirSets || parsed.rpeSets, parsed.rirSets ? 'RIR' : 'RPE')}
     </div>}
-    {!isBW && parsed.unmatchedNames.length > 0 && <>
+    {unknownWeightWarning(parsed) && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 10 }}>
+      {unknownWeightWarning(parsed)}
+    </div>}
+    {!isBW && cur.unmatchedNames.length > 0 && <>
       <h4 className="sec">{t('Not in the library — added as your own exercises')}</h4>
       <div className="mchips" style={{ marginBottom: 12 }}>
-        {parsed.unmatchedNames.slice(0, 12).map(n => <span key={n} className="mchip capitalize">{n}</span>)}
-        {parsed.unmatchedNames.length > 12 && <span className="mchip">+{parsed.unmatchedNames.length - 12}</span>}
+        {cur.unmatchedNames.slice(0, 12).map(n => <span key={n} className="mchip capitalize">{n}</span>)}
+        {cur.unmatchedNames.length > 12 && <span className="mchip">+{cur.unmatchedNames.length - 12}</span>}
       </div>
     </>}
 
@@ -215,9 +241,11 @@ export function importFromApp(file, onDone) {
     if (parsed.error === 'empty') { toast(t('That file is empty')); return }
     if (parsed.error) { toast(t("That file's columns aren't recognised — see the docs for supported apps.")); return }
     if (parsed.kind === 'bodyweight' ? !parsed.bodyweight.length : !parsed.workouts.length) {
-      toast(t('Nothing to import from that file')); return
+      if (parsed.unknownWeightRows > 0) toast(unknownWeightWarning(parsed))
+      else toast(t('Nothing to import from that file'))
+      return
     }
-    ui().openSheet(close => <ImportSummary parsed={parsed} close={close} />)
+    ui().openSheet(close => <ImportSummary parsed={parsed} raw={String(rd.result)} close={close} />)
     onDone && onDone()
   }
   rd.onerror = () => toast(t('Could not read that file'))
@@ -849,17 +877,21 @@ function TopWeight({ entryIdx, close }) {
   // to sit after every one of them.
   const entry = A ? A.entries[entryIdx] : null
   const ex = entry && EXIDX[entry.id]
-  const maxSet = entry ? Math.max(0, ...entry.sets.filter(s => s.done).map(s => s.w || 0)) : 0
+  const canConfirm = !!entry && shouldConfirmWorkingWeight(entry, 'reps')
+  const repsWorkRows = entry ? workRowsForMode(entry, 'reps').filter(s => s.done) : []
+  const maxSet = S().fullSetsDefault === false
+    ? Math.max(0, ...repsWorkRows.map(s => s.w || 0))
+    : bestFullSetWeight(entry, entry?.target)
   const prevBest = entry ? Math.max((st.exWeights[entry.id] || {}).w || 0, bestWeightFor(st, entry.id)) : 0
   const [v, setV] = useState(entry ? (Math.max(maxSet, prevBest) || entry.target.weight || 0) : 0)
-  useEffect(() => { if (!entry) close() }, [!entry])
+  useEffect(() => { if (!entry || !canConfirm) close() }, [!entry, canConfirm])
 
   const units = supersetUnits(A ? A.entries : [])
   const unit = entry ? unitOf(units, entryIdx) : []
   const unitDone = !!entry && unit.every(i => A.entries[i].sets.every(s => s.done))
   const unitIdx = units.findIndex(u => u === unit)
   const isLastUnit = unitIdx === units.length - 1
-  if (!entry || !ex) return null
+  if (!entry || !ex || !canConfirm) return null
 
   const commit = advance => {
     const n = Math.round((v || 0) * 10) / 10
@@ -888,6 +920,37 @@ function TopWeight({ entryIdx, close }) {
   </>
 }
 export const topWeightSheet = entryIdx => ui().openSheet(close => <TopWeight entryIdx={entryIdx} close={close} />)
+
+// End-of-exercise summary disabled: confirm the working weight automatically (heaviest
+// done set, else previous best, else the target) and advance exactly like TopWeight's
+// "Save & next exercise" would - so the working-weight cache still updates without the popup.
+export function autoConfirmTopWeight(entryIdx) {
+  const st = useStore.getState().S
+  const A = st.active
+  if (!A) return
+  const entry = A.entries[entryIdx]
+  if (!entry) return
+  const units = supersetUnits(A.entries)
+  const unit = unitOf(units, entryIdx)
+  const unitDone = unit.every(i => A.entries[i].sets.every(x => x.done))
+  const unitIdx = units.findIndex(u => u === unit)
+  const isLastUnit = unitIdx === units.length - 1
+  const repsWorkRows = workRowsForMode(entry, 'reps').filter(x => x.done)
+  const maxSet = st.fullSetsDefault === false
+    ? Math.max(0, ...repsWorkRows.map(x => x.w || 0))
+    : bestFullSetWeight(entry, entry?.target)
+  const prevBest = Math.max((st.exWeights[entry.id] || {}).w || 0, bestWeightFor(st, entry.id))
+  const n = Math.round((Math.max(maxSet, prevBest) || entry.target.weight || 0) * 10) / 10
+  update(s => {
+    s.active.entries[entryIdx].topW = n
+    const cur = s.exWeights[entry.id]
+    s.exWeights[entry.id] = { w: Math.max(n, cur ? cur.w : 0), d: todayISO() }
+  })
+  if (unitDone) {
+    if (isLastUnit) workoutCompleteSheet()
+    else update(s => { s.active.cur = units[unitIdx + 1][0] })
+  }
+}
 
 // Shown when the last exercise's last set is checked — finish, or keep going.
 function WorkoutComplete({ close }) {
