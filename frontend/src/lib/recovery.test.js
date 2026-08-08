@@ -16,6 +16,7 @@ import {
 import { EXDB } from './exercises.js'
 import { MUSCLES, musclesOf } from './muscles.js'
 import { fatigueStateOf } from './recovery-view.js'
+import { kgBodyweight } from './units.js'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -26,11 +27,12 @@ const SINGLE = EXDB.find(ex => {
   const weights = musclesOf(ex)
   return ex.bp !== 'cardio' && Object.keys(weights).length === 1 && Object.values(weights)[0] === 1
 })
+const BODYWEIGHT = EXDB.find(ex => ex.eq === 'body weight')
 const WEIGHTED = EXDB.find(ex => {
   const weights = musclesOf(ex)
   return ex.bp !== 'cardio' && Object.values(weights).includes(0.4)
 })
-if (!SINGLE || !WEIGHTED) throw new Error('recovery tests require single- and secondary-weight fixtures')
+if (!SINGLE || !BODYWEIGHT || !WEIGHTED) throw new Error('recovery tests require single-, bodyweight-, and secondary-weight fixtures')
 
 const SINGLE_WEIGHTS = musclesOf(SINGLE)
 const WEIGHTED_WEIGHTS = musclesOf(WEIGHTED)
@@ -144,6 +146,19 @@ describe('fatigueOf and strengthOf', () => {
     expect(strengthOf(workouts, NOW)).toEqual(floorStrength())
     expect(fatiguedMuscles(workouts, NOW)).toEqual([])
     expect(detrainedMuscles(workouts, NOW)).toEqual(MUSCLES)
+  })
+
+  it('uses canonical bodyweight for bodyweight fatigue and is unchanged by a display toggle', () => {
+    const workout = workoutAt(BODYWEIGHT.id, NOW, [{ done: true, w: 0, r: 8 }])
+    workout.entries[0].target = { bodyweight: true }
+    const slug = Object.keys(musclesOf(BODYWEIGHT))[0]
+
+    const at80 = fatigueOf([workout], NOW, { bodyweightKg: 80 })[slug]
+    const at40 = fatigueOf([workout], NOW, { bodyweightKg: 40 })[slug]
+    const afterToggle = fatigueOf([workout], NOW, { bodyweightKg: kgBodyweight(80, 'lb') })[slug]
+
+    expect(at80).toBeGreaterThan(at40)
+    expect(afterToggle).toBeCloseTo(at80, 12)
   })
 })
 

@@ -14,6 +14,7 @@ import { loadOfWorkouts, rankOf, MUSCLE_NAME, musclesOf } from '../lib/muscles.j
 import { fatigueOf, strengthOf, STRENGTH_FLOOR } from '../lib/recovery.js'
 import { fatigueStateOf } from '../lib/recovery-view.js'
 import { e1rmSeries, best1RM } from '../lib/onerm.js'
+import { kgBodyweight, storedFromKg } from '../lib/units.js'
 import {
   hasEffort, displayScale, scaleName, toScale, avgRir, effortSummary, effortWeeks,
   effortHistogram, isHardSet, HARD_RIR
@@ -73,6 +74,12 @@ export function weeksSinceTraining(now, lastTrained) {
   return Math.max(0, Math.floor((now - lastTrained) / 86400000 / 7))
 }
 
+// Only reps-mode metrics are stored as weights. Timed holds and cardio speeds use their own
+// units, so a display-unit toggle must not send those values through the kg↔lb boundary.
+export function displayMetric(value, mode, unit) {
+  return mode === 'time' || mode === 'cardio' ? value : storedFromKg(value, unit)
+}
+
 function FatigueLegend() {
   return <div className="hm-legend hm-fatigue" aria-label={t('Fatigue')}>
     <span>{t('Fatigued')}</span><div className="hm-c l4" />
@@ -100,8 +107,9 @@ function MuscleBalance({ S }) {
   const [sel, setSel] = useState(null)
   const now = useNow()
   const workouts = S.workouts
-  const fatigue = useMemo(() => fatigueOf(workouts, now), [workouts, now])
-  const strength = useMemo(() => strengthOf(workouts, now), [workouts, now])
+  const bodyweightKg = kgBodyweight(lastBW(S)?.w, S.unit)
+  const fatigue = useMemo(() => fatigueOf(workouts, now, { bodyweightKg }), [workouts, now, bodyweightKg])
+  const strength = useMemo(() => strengthOf(workouts, now, { bodyweightKg }), [workouts, now, bodyweightKg])
   const lastTrained = useMemo(() => latestMuscleTraining(workouts), [workouts])
   const { worked: strengthOrder } = rankOf(strength)
   const detrained = strengthOrder.filter(slug => strength[slug] < 1)
@@ -253,7 +261,7 @@ export default function Stats() {
   const hd = scaleName(kind)
 
   const bwPts = S.bodyweight.filter(b => range === 0 || (b.t || new Date(b.d).getTime()) > now - range * 86400000)
-    .map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
+    .map(b => ({ t: b.t || new Date(b.d).getTime(), y: storedFromKg(b.w, S.unit), d: b.d }))
   const bw30 = S.bodyweight.filter(b => (b.t || new Date(b.d).getTime()) > now - 30 * 86400000)
   const bwDelta30 = bw30.length > 1 ? bw30[bw30.length - 1].w - bw30[0].w : null
   const monthW = S.workouts.filter(w => w.d.slice(0, 7) === todayISO().slice(0, 7)).length
@@ -265,9 +273,9 @@ export default function Stats() {
       const mode = modeOf({ ...(en.target || {}), id })
       const metric = s2 => mode === 'cardio' ? (s2.speed || 0) : mode === 'time' ? (s2.sec || 0) : (s2.w || 0)
       const mx = Math.max(0, ...en.sets.filter(s2 => s2.done).map(metric), mode === 'time' || mode === 'cardio' ? 0 : (en.topW || 0))
-      if (mx > 0) return { mx, unit: mode === 'cardio' ? 'km/h' : mode === 'time' ? 's' : S.unit }
+      if (mx > 0) return { mx, display: displayMetric(mx, mode, S.unit), unit: mode === 'cardio' ? 'km/h' : mode === 'time' ? 's' : S.unit }
     }
-    return { mx: 0, unit: S.unit }
+    return { mx: 0, display: 0, unit: S.unit }
   }
   const exHist = [...new Set(S.workouts.flatMap(w => w.entries.map(e => e.id)))].filter(id => EXIDX[id])
   const exCurrent = Object.fromEntries(exHist.map(id => [id, currentOf(id)]))
@@ -310,7 +318,7 @@ export default function Stats() {
   const onE1 = showE1 && exMetric === 'e1rm'
   const onEff = showEff && exMetric === 'effort'
   const topPts = exPts.map((p, i) => ({
-    t: p.t, y: p.y, d: p.d,
+    t: p.t, y: displayMetric(p.y, curMode, S.unit), d: p.d,
     // 0 RIR (nothing left) is a full dot, 4+ a faint one; unrated sessions keep the plain line.
     m: exRir[i] == null ? null : 1 - Math.min(4, Math.max(0, exRir[i])) / 4,
     note: exRir[i] == null ? undefined : hd + ' ' + fmtNum(toScale(kind, exRir[i]))
@@ -327,7 +335,7 @@ export default function Stats() {
       <div className="tile"><div className="l"><Icon name="dumbbell" />{t('Workouts')}</div><div className="v">{S.workouts.length}</div></div>
       <div className="tile"><div className="l"><Icon name="calendar" />{t('This month')}</div><div className="v">{monthW}</div></div>
       <div className="tile"><div className="l"><Icon name="flame" />{t('Week streak')}</div><div className="v">{streakWeeks(S)}</div></div>
-      <div className="tile"><div className="l"><Icon name="scale" />{t('Weight 30d')}</div><div className="v" style={{ fontSize: 22, color: bwDelta30 === null ? 'inherit' : bwDeltaColor(bwDelta30, (lastBW(S) || {}).w || 0) }}>{bwDelta30 === null ? '—' : (bwDelta30 > 0 ? '+' : '') + fmtNum(bwDelta30) + ' ' + S.unit}</div></div>
+      <div className="tile"><div className="l"><Icon name="scale" />{t('Weight 30d')}</div><div className="v" style={{ fontSize: 22, color: bwDelta30 === null ? 'inherit' : bwDeltaColor(bwDelta30, (lastBW(S) || {}).w || 0) }}>{bwDelta30 === null ? '—' : (bwDelta30 > 0 ? '+' : bwDelta30 < 0 ? '-' : '') + fmtNum(storedFromKg(Math.abs(bwDelta30), S.unit)) + ' ' + S.unit}</div></div>
     </div>
 
     <div className="card">
@@ -343,13 +351,13 @@ export default function Stats() {
         <div className="row between" style={{ marginBottom: 8 }}>
           <h2 style={{ margin: 0 }}>{t('Body weight')}</h2>
           <div className="row" style={{ gap: 8 }}>
-            <Button size="sm" icon="target" style={S.targetW ? { color: 'var(--yellow)' } : undefined} onClick={goalSheet}>{S.targetW ? fmtNum(S.targetW) : t('Goal')}</Button>
+            <Button size="sm" icon="target" style={S.targetW ? { color: 'var(--yellow)' } : undefined} onClick={goalSheet}>{S.targetW ? fmtNum(storedFromKg(S.targetW, S.unit)) : t('Goal')}</Button>
             <Button size="sm" icon="plus" onClick={() => bwSheet()}>{t('Log')}</Button>
           </div>
         </div>
         <Segmented className="seg-range" value={range} onChange={setRange}
           options={[{ value: 30, label: '1M' }, { value: 90, label: '3M' }, { value: 365, label: '1Y' }, { value: 0, label: t('All') }]} />
-        <div className="chart"><LineChart points={bwPts} h={160} unit={S.unit} goal={S.targetW} /></div>
+        <div className="chart"><LineChart points={bwPts} h={160} unit={S.unit} goal={storedFromKg(S.targetW, S.unit)} /></div>
       </div>
 
       <div className="card">
@@ -357,23 +365,23 @@ export default function Stats() {
         {exHist.length ? <>
           <div className="sect-b" style={{ marginBottom: 10 }}>
             <SelectRow title={t('Exercise')} sheetTitle={t('Exercise progress')} value={curEx} onChange={setExId}
-              options={exHist.map(id => ({ value: id, label: EXIDX[id].n + (exCurrent[id].mx ? ' ' + '—' + ' ' + fmtNum(exCurrent[id].mx) + ' ' + exCurrent[id].unit : '') }))} />
+              options={exHist.map(id => ({ value: id, label: EXIDX[id].n + (exCurrent[id].mx ? ' ' + '—' + ' ' + fmtNum(exCurrent[id].display) + ' ' + exCurrent[id].unit : '') }))} />
 
           </div>
           {exOpts.length > 1 && <Segmented className="seg-range" value={onEff ? 'effort' : onE1 ? 'e1rm' : 'top'} onChange={setExMetric} options={exOpts} />}
           <div className="chart">
             {onEff
               ? <LineChart points={effPts} h={150} unit={hd} color="var(--yellow)" invert={kind === 'rir'} />
-              : <LineChart points={onE1 ? e1Pts.map(p => ({ t: p.t, y: p.y, d: p.d })) : topPts} h={150} unit={exUnit} color="var(--blue)" />}
+              : <LineChart points={onE1 ? e1Pts.map(p => ({ t: p.t, y: displayMetric(p.y, 'reps', S.unit), d: p.d })) : topPts} h={150} unit={exUnit} color="var(--blue)" />}
           </div>
           <div style={{ marginTop: 8 }}>{exList.map((p, i) => <div key={i} className="row between small" style={{ padding: '6px 0', borderBottom: 'var(--hair) solid var(--sep)' }}>
-            <span className="muted">{fmtDate(p.d, true)}</span><span>{p.sets.map(s => setLabel(curEx, s, p.target)).join('  ')}</span></div>)}</div>
+            <span className="muted">{fmtDate(p.d, true)}</span><span>{p.sets.map(s => setLabel(curEx, s, p.target, S.unit)).join('  ')}</span></div>)}</div>
           <div className="small dim" style={{ marginTop: 8 }}>
             {onEff ? t('Average effort per workout') : onE1 ? t('Estimated 1RM per workout') : curCardio ? t('Top speed per workout') : curTimed ? t('Longest hold per workout') : t('Best set weight per workout')}
-            {onEff ? '' : <> · {t('Best:')}{' '}<b className="accent">{fmtNum(onE1 ? e1Best.est : exBest)} {onE1 ? S.unit : exUnit}</b></>}
+            {onEff ? '' : <> · {t('Best:')}{' '}<b className="accent">{fmtNum(displayMetric(onE1 ? e1Best.est : exBest, onE1 ? 'reps' : curMode, S.unit))} {onE1 ? S.unit : exUnit}</b></>}
           </div>
           {onE1 && <div className="small dim" style={{ marginTop: 4 }}>
-            {t('Best estimate from {0} on {1} — an estimate, not a tested max.', fmtNum(e1Best.w) + ' ' + S.unit + ' × ' + e1Best.r, fmtDate(e1Best.d, true))}
+            {t('Best estimate from {0} on {1} — an estimate, not a tested max.', fmtNum(storedFromKg(e1Best.w, S.unit)) + ' ' + S.unit + ' × ' + e1Best.r, fmtDate(e1Best.d, true))}
           </div>}
           {!onEff && !onE1 && showEff && <div className="small dim" style={{ marginTop: 4 }}>
             {t('A fuller dot means less left in the tank — the same weight at a lower {0} is progress the line alone does not show.', hd)}

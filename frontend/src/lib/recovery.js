@@ -1,11 +1,17 @@
 import { EXIDX } from './exercises.js'
+import { isBodyweightEq } from './exercises.js'
 import { MUSCLES, musclesOf } from './muscles.js'
+import { kgFromStored, normalizeUnit } from './units.js'
 
 /** Completed-workout window used when calculating current fatigue. */
 // A "normal" hard session for one muscle, in primary-set equivalents. The saturation curve
 // 1 - exp(-stimulus / REF) maps any session size onto [0,1) so volume raises the starting
 // fatigue level without ever pinning it, and the value can then fade asymptotically.
 export const FATIGUE_REF_VOLUME = 3
+// Bodyweight exercises use the same effective-set scale as loaded exercises. Normalising against
+// a stable reference keeps the legacy one-set result unchanged around an ordinary 75 kg athlete,
+// while still making bodyweight fatigue respond to the canonical body mass used for the session.
+export const BODYWEIGHT_REF_LOAD = 75
 // Computational bound for the stimulus scan, not a semantic cliff: after 30 days (20
 // half-lives) a session contributes below 1e-6 to the accumulated value.
 export const FATIGUE_SCAN_MS = 30 * 24 * 60 * 60 * 1000
@@ -58,10 +64,46 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
 
+function numeric(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+function unitOf(...records) {
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue
+    for (const key of ['unit', 'u', 'weightUnit', 'storedUnit', 'weight_unit', 'loadUnit']) {
+      if (record[key] != null && String(record[key]).trim() !== '') return normalizeUnit(record[key])
+    }
+  }
+  return 'kg'
+}
+
+function bodyweightTarget(entry) {
+  if (entry?.target?.bodyweight != null) return !!entry.target.bodyweight
+  if (entry?.bodyweight != null) return !!entry.bodyweight
+  return isBodyweightEq(entry?.id)
+}
+
+function bodyweightLoad(workout, entry, set, fallbackKg) {
+  const sourceUnit = unitOf(set, entry?.target, entry, workout)
+  const stamped = numeric(workout?.bw) ?? numeric(workout?.bodyweight)
+  const bodyweightKg = stamped === null
+    ? (numeric(fallbackKg) ?? BODYWEIGHT_REF_LOAD)
+    : kgFromStored(stamped, unitOf({ unit: workout?.bwUnit }, workout, entry?.target, entry))
+  const addedKg = kgFromStored(numeric(set?.w) ?? 0, sourceUnit)
+  return Math.max(0, bodyweightKg + addedKg) / BODYWEIGHT_REF_LOAD
+}
+
+function recoveryOptions(value) {
+  return typeof value === 'number' ? { bodyweightKg: value } : (value || {})
+}
+
 // Yield one weighted stimulus per completed set. Repeating the exercise's muscle weights for
 // every done set is equivalent to multiplying musclesOf(ex) by the completed-set count while
 // preserving the workout/set shape already used by the app.
-function completedStimuli(workouts, include) {
+function completedStimuli(workouts, include, bodyweightKg) {
   const stimuli = []
   for (const workout of workouts || []) {
     const timestamp = workoutTimestamp(workout)
@@ -70,9 +112,10 @@ function completedStimuli(workouts, include) {
       const weights = musclesOf(EXIDX[entry.id])
       for (const set of entry.sets || []) {
         if (set?.done !== true) continue
+        const load = bodyweightTarget(entry) ? bodyweightLoad(workout, entry, set, bodyweightKg) : 1
         for (const [slug, weight] of Object.entries(weights)) {
           if (Object.prototype.hasOwnProperty.call(MUSCLES_BY_SLUG, slug)) {
-            stimuli.push({ slug, timestamp, stimulus: weight })
+            stimuli.push({ slug, timestamp, stimulus: weight * load })
           }
         }
       }
@@ -113,10 +156,11 @@ function fatigueValue(events, now) {
  * @param {number} now Current time in milliseconds; injected to keep this function deterministic.
  * @returns {Record<string, number>} Fatigue values keyed by every drawable muscle slug.
  */
-export function fatigueOf(workouts, now) {
+export function fatigueOf(workouts, now, options = {}) {
+  const { bodyweightKg } = recoveryOptions(options)
   const current = Number(now)
   const cutoff = current - FATIGUE_SCAN_MS
-  const stimuli = completedStimuli(workouts, timestamp => timestamp > cutoff)
+  const stimuli = completedStimuli(workouts, timestamp => timestamp > cutoff, bodyweightKg)
   const byMuscle = Object.fromEntries(MUSCLES.map(slug => [slug, []]))
   for (const stimulus of stimuli) byMuscle[stimulus.slug].push(stimulus)
 
@@ -138,10 +182,11 @@ export function fatigueOf(workouts, now) {
  * @param {number} now Current time in milliseconds; injected to keep this function deterministic.
  * @returns {Record<string, number>} Retained-strength values keyed by every drawable muscle slug.
  */
-export function strengthOf(workouts, now) {
+export function strengthOf(workouts, now, options = {}) {
+  const { bodyweightKg } = recoveryOptions(options)
   const current = Number(now)
   const latest = Object.fromEntries(MUSCLES.map(slug => [slug, -Infinity]))
-  const stimuli = completedStimuli(workouts, () => true)
+  const stimuli = completedStimuli(workouts, () => true, bodyweightKg)
   for (const stimulus of stimuli) {
     if (stimulus.timestamp > latest[stimulus.slug]) latest[stimulus.slug] = stimulus.timestamp
   }
@@ -174,8 +219,8 @@ export function strengthOf(workouts, now) {
  * @example
  * const avoid = fatiguedMuscles(workouts, now)
  */
-export function fatiguedMuscles(workouts, now) {
-  return Object.entries(fatigueOf(workouts, now))
+export function fatiguedMuscles(workouts, now, options = {}) {
+  return Object.entries(fatigueOf(workouts, now, options))
     .filter(([, value]) => value > 0.5)
     .map(([slug]) => slug)
 }
@@ -190,8 +235,8 @@ export function fatiguedMuscles(workouts, now) {
  * @example
  * const targets = detrainedMuscles(workouts, now)
  */
-export function detrainedMuscles(workouts, now) {
-  return Object.entries(strengthOf(workouts, now))
+export function detrainedMuscles(workouts, now, options = {}) {
+  return Object.entries(strengthOf(workouts, now, options))
     .filter(([, value]) => value < 1)
     .map(([slug]) => slug)
 }

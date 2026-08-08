@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MUSCLES, MUSCLE_NAME, levelsOf, rankOf } from '../lib/muscles.js'
 import { FATIGUE_STATES, STRENGTH_FLOOR } from '../lib/recovery.js'
 import { fatigueStateOf } from '../lib/recovery-view.js'
-import Stats, { weeksSinceTraining } from './Stats.jsx'
+import Stats, { displayMetric, weeksSinceTraining } from './Stats.jsx'
 
 const DAY = 86400000
 const HOUR = 3600000
@@ -204,6 +204,12 @@ beforeEach(() => {
 })
 
 describe('Stats muscle recovery view runtime', () => {
+  it('converts weight metrics for display but leaves timed and cardio metrics unchanged', () => {
+    expect(displayMetric(60, 'reps', 'lb')).toBeCloseTo(132.277, 3)
+    expect(displayMetric(45, 'time', 'lb')).toBe(45)
+    expect(displayMetric(9, 'cardio', 'lb')).toBe(9)
+  })
+
   it('starts in Balance and preserves range, hard filter, and selected muscle through every real view transition', async () => {
     await mountStats()
         const card = muscleCard()

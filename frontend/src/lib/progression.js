@@ -18,6 +18,7 @@
 
 import { modeOf, repStep } from './history.js'
 import { EXIDX } from './exercises.js'
+import { storedFromKg, kgFromStored, UNIT_SCHEMA_VERSION } from './units.js'
 
 export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'time']
 
@@ -161,7 +162,11 @@ export function nextPrescription(S, cfg, routine) {
   const mode = modeOf(cfg)
   const policy = policyFor(cfg, routine, mode)
   const unit = S.unit || 'kg'
-  const inc = cfg.inc > 0 ? cfg.inc : (mode === 'time' ? DEFAULT_SEC_INCREMENT : defaultIncrement(cfg.id, unit))
+  const canonical = Number(S.unitsVersion) >= UNIT_SCHEMA_VERSION
+  const inc = cfg.inc > 0
+    ? cfg.inc
+    : (mode === 'time' ? DEFAULT_SEC_INCREMENT : (canonical ? kgFromStored(defaultIncrement(cfg.id, unit), unit) : defaultIncrement(cfg.id, unit)))
+  const displayInc = canonical ? storedFromKg(inc, unit) : inc
   if (policy === 'off') return { policy, kind: 'off' }
 
   const sessions = sessionsFor(S, cfg.id, cfg).filter(s => s.mode === mode)
@@ -211,10 +216,10 @@ export function nextPrescription(S, cfg, routine) {
   if (policy === 'double') {
     const top = cfg.reps || last.goal || 10
     const bottom = Math.min(cfg.repsMin || Math.max(1, top - 2), top)
-    if (last.ok) return { policy, kind: 'up', weight: snap(w + inc, inc), reps: bottom, why: ['Top of the rep range in every set — {0} {1} more, back to {2} reps.', inc, unit, bottom] }
+    if (last.ok) return { policy, kind: 'up', weight: snap(w + inc, inc), reps: bottom, why: ['Top of the rep range in every set — {0} {1} more, back to {2} reps.', displayInc, unit, bottom] }
     if (stalls >= deloadAt) {
       const dw = deloadTo(w, inc)
-      return { policy, kind: 'deload', weight: dw, reps: bottom, why: ['Stalled {0} sessions — deload to {1} {2}.', stalls, dw, unit] }
+      return { policy, kind: 'deload', weight: dw, reps: bottom, why: ['Stalled {0} sessions — deload to {1} {2}.', stalls, canonical ? storedFromKg(dw, unit) : dw, unit] }
     }
     const aim = Math.min(top, Math.max(bottom, last.low + repStep(cfg)))
     return { policy, kind: 'hold', weight: w, reps: aim, why: ['Same weight — aim for {0} reps this time.', aim] }
@@ -229,8 +234,8 @@ export function nextPrescription(S, cfg, routine) {
     return {
       policy, kind: 'up', weight: snap(w + step, inc),
       why: dbl
-        ? ['Last set hit {0} reps — twice the target, so take a double jump of {1} {2}.', last.amrap, step, unit]
-        : ['Every rep last time — {0} {1} more.', step, unit]
+        ? ['Last set hit {0} reps — twice the target, so take a double jump of {1} {2}.', last.amrap, canonical ? storedFromKg(step, unit) : step, unit]
+        : ['Every rep last time — {0} {1} more.', canonical ? storedFromKg(step, unit) : step, unit]
     }
   }
   if (stalls >= deloadAt) {
@@ -238,8 +243,8 @@ export function nextPrescription(S, cfg, routine) {
     return {
       policy, kind: 'deload', weight: dw,
       why: stalls > 1
-        ? ['Missed reps {0} sessions running — reset to {1} {2} and work back up.', stalls, dw, unit]
-        : ['Missed reps — reset to {0} {1} and work back up.', dw, unit]
+        ? ['Missed reps {0} sessions running — reset to {1} {2} and work back up.', stalls, canonical ? storedFromKg(dw, unit) : dw, unit]
+        : ['Missed reps — reset to {0} {1} and work back up.', canonical ? storedFromKg(dw, unit) : dw, unit]
     }
   }
   return { policy, kind: 'hold', weight: w, why: ['Missed reps last time — same weight again ({0} of {1} to go).', deloadAt - stalls, deloadAt] }

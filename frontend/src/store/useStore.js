@@ -5,9 +5,11 @@ import { registerCustom } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { guestAllowed } from '../lib/guest.js'
 import { MOBILE, nativeLoad, nativeSave, syncReminder } from '../lib/mobile.js'
+import { migrateStateToKg, UNIT_SCHEMA_VERSION } from '../lib/units.js'
 
 const KEY = 'gym_state_v1'
 export const DEF = {
+  unitsVersion: UNIT_SCHEMA_VERSION,
   unit: 'kg', restSec: 90, sound: true, keepAwake: true, lang: 'en',
   theme: 'dark', accent: 'lime', body: 'male', targetW: null,
   bodyweight: [], routines: [], week: {}, dayPlan: {},
@@ -20,12 +22,21 @@ export const DEF = {
 }
 const clone = o => JSON.parse(JSON.stringify(o))
 
+// Overlay defaults without accidentally making an old profile look canonical. The distinction is
+// important for a legacy lb profile: its missing unitsVersion tells the migration boundary to use
+// the profile unit for un-stamped values, whereas a freshly written state is explicitly kg-based.
+function withDefaults(raw) {
+  const state = Object.assign(clone(DEF), raw || {})
+  if (!raw || raw.unitsVersion == null) delete state.unitsVersion
+  return state
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) return Object.assign(clone(DEF), JSON.parse(raw))
+    if (raw) return migrateStateToKg(withDefaults(JSON.parse(raw)))
   } catch (e) { /* ignore */ }
-  return clone(DEF)
+  return migrateStateToKg(clone(DEF))
 }
 
 const hasData = st => !!((st.workouts || []).length || (st.routines || []).length || (st.bodyweight || []).length)
@@ -42,10 +53,11 @@ export const useStore = create((set, get) => {
   }
 
   const persist = (S, push = true) => {
-    S._ts = Date.now()
-    registerCustom(S.customEx)
-    localStorage.setItem(KEY, JSON.stringify(S))
-    set({ S })
+    const next = migrateStateToKg(S)
+    next._ts = Date.now()
+    registerCustom(next.customEx)
+    localStorage.setItem(KEY, JSON.stringify(next))
+    set({ S: next })
     if (MOBILE) nativePersist()
     if (push && get().user) {
       clearTimeout(pushTm)
@@ -91,7 +103,7 @@ export const useStore = create((set, get) => {
       mut(S)
       persist(S, push)
     },
-    replaceState(S, push = false) { persist(clone(S), push) },
+    replaceState(S, push = false) { persist(withDefaults(S), push) },
 
     isGuest: () => localStorage.getItem('gym_guest') === '1',
     setGuest(v) { if (v) localStorage.setItem('gym_guest', '1'); else localStorage.removeItem('gym_guest'); set({}) },
@@ -125,7 +137,7 @@ export const useStore = create((set, get) => {
         const dirty = localStorage.getItem('gym_dirty') === '1'
         if (state && (!hasData(S) || ((state._ts || 0) >= (S._ts || 0) && !dirty))) {
           const active = S.active
-          const next = Object.assign(clone(DEF), state)
+          const next = withDefaults(state)
           if (active) next.active = active
           persist(next, false)
         } else if (hasData(S)) { await get().pushState() }
@@ -153,7 +165,7 @@ export const useStore = create((set, get) => {
     async resetDemo() {
       const { buildDemoState } = await import('../lib/demoSeed.js')
       localStorage.removeItem('gym_dirty')
-      persist(Object.assign(clone(DEF), buildDemoState()), false)
+      persist(withDefaults(buildDemoState()), false)
     },
 
     // Boot: ask the server who we are, then pull.
@@ -164,7 +176,7 @@ export const useStore = create((set, get) => {
         const saved = await nativeLoad()
         const S = get().S
         if (saved && (!hasData(S) || (saved._ts || 0) >= (S._ts || 0))) {
-          persist(Object.assign(clone(DEF), saved), false)
+          persist(withDefaults(saved), false)
         } else if (hasData(S)) {
           nativeSave(S)   // first run after an update from a file-less version: seed the mirror
         }

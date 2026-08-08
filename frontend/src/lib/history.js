@@ -1,6 +1,7 @@
 // Pure helpers over the state object S (ported 1:1 from the vanilla app).
 import { todayISO, isoOf, weekKey, fmtNum } from './format.js'
 import { isCardio, isBodyweightEq } from './exercises.js'
+import { storedFromKg } from './units.js'
 // i18n-core, not i18n: this file is imported by mcp/, which is plain Node with no Vite and no
 // React. i18n.js is the Vite half — import.meta.glob over the locale packs, useSyncExternalStore
 // for the hook — and it re-exports this very `t` from core, so nothing changes here except what
@@ -95,21 +96,22 @@ const effortTail = s => {
 
 // One-line summary of a logged set. `cfg` carries the mode when the caller has it (a routine
 // entry or a workout entry); passing an id alone keeps the old body-part behaviour.
-export function setLabel(id, s, cfg) {
+export function setLabel(id, s, cfg, unit = 'kg') {
   const c = cfg || { id }
   const mode = modeOf(c)
   if (mode === 'cardio') return `${s.min || 0} min @ ${fmtNum(s.speed || 0)} km/h`
-  if (mode === 'time') return fmtSec(s.sec) + (s.w > 0 ? ` · ${fmtNum(s.w)}` : '')
+  const weight = storedFromKg(s.w || 0, unit)
+  if (mode === 'time') return fmtSec(s.sec) + (weight > 0 ? ` · ${fmtNum(weight)}` : '')
   // Bodyweight reads as what you did — "12", or "+10 × 12" once there is a belt involved —
   // rather than "0×12", which says a set was performed with no weight and means nothing.
   // A per-side set needs no mark here: the number logged is the total, the same as every
   // other set in the app.
   const reps = s.r || 0
   if (isBw({ ...c, id: c.id ?? id })) {
-    const load = s.w > 0 ? `+${fmtNum(s.w)} × ` : ''
+    const load = weight > 0 ? `+${fmtNum(weight)} × ` : ''
     return `${load}${reps}` + effortTail(s)
   }
-  return `${fmtNum(s.w || 0)}×${reps}` + effortTail(s)
+  return `${fmtNum(weight)}×${reps}` + effortTail(s)
 }
 // Default config for a freshly added exercise.
 export function defaultConfig(id, mode) {
@@ -127,7 +129,7 @@ export function exLine(cfg, unit) {
   const mode = modeOf(cfg)
   const n = cfg.sets || 1
   // Added weight reads as added: "+10 kg" on a dip belt, "60 kg" on a barbell.
-  const load = cfg.weight ? ' · ' + (isBw(cfg) ? '+' : '') + fmtNum(cfg.weight) + ' ' + unit : ''
+  const load = cfg.weight ? ' · ' + (isBw(cfg) ? '+' : '') + fmtNum(storedFromKg(cfg.weight, unit)) + ' ' + unit : ''
   if (mode === 'cardio') return `${n} × ${cfg.min || 20} min @ ${fmtNum(cfg.speed || 8)} km/h`
   if (mode === 'time') return `${n} × ${fmtSec(cfg.sec || 45)}${load}`
   // This is the line with room for it, so the split is spelled out: "3 × 16 · 8/side".

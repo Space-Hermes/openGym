@@ -14,6 +14,7 @@ import Icon from '../components/Icon.jsx'
 import { Button, Check, NumberField } from '../components/ui.jsx'
 import { nextPrescription, applyPrescription } from '../lib/progression.js'
 import { glyphOf } from '../lib/glyphs.js'
+import { kgFromStored, storedFromKg } from '../lib/units.js'
 
 /* ---------- start chooser (no active workout) ---------- */
 function StartChooser() {
@@ -95,7 +96,8 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
   // with no ceiling, as they always did.
   const bump = (s, i, col, dir) => {
     if (col.eff) return onField(i, col.f, stepEffort(col.eff, s[col.f], dir))
-    onField(i, col.f, Math.max(0, Math.round(((s[col.f] || 0) + dir * col.step) * 100) / 100))
+    const current = col.f === 'w' ? storedFromKg(s[col.f] || 0, S.unit) : (s[col.f] || 0)
+    onField(i, col.f, Math.max(0, Math.round((current + dir * col.step) * 100) / 100))
   }
   // Uses the shared stepper markup so a set row picks up the same control styling
   // as every other +/- field in the app.
@@ -103,7 +105,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
     <div className={'stp ' + cls}>
       <button aria-label="Decrease" onClick={() => bump(s, i, col, -1)}><Icon name="minus" /></button>
       {/* a typed effort is capped — there is no RPE 12, and 12 reps in reserve is a warm-up */}
-      <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={s[col.f] ?? ''}
+      <span className="val"><NumberField decimal={col.dec} nullable={col.opt} value={col.f === 'w' ? (storedFromKg(s[col.f] || 0, S.unit) ?? '') : (s[col.f] ?? '')}
         onChange={v => onField(i, col.f, col.eff ? capEffort(col.eff, v) : v)} /></span>
       <button aria-label="Increase" onClick={() => bump(s, i, col, 1)}><Icon name="plus" /></button>
     </div>
@@ -121,9 +123,9 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {!cardio && !timed && isPerSide(cfg) && <span className="tag acc nocap"><Icon name="shuffle" />{t('{0} per side', fmtNum(sideReps(entry.sets.find(s => !s.done)?.r ?? entry.sets[0]?.r)))}</span>}
       {(ex.tg || ex.bp) && <span className="tag">{t(ex.tg || ex.bp)}</span>}
       {ex.eq && <span className="tag">{t(ex.eq)}</span>}
-      {best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(best)} {S.unit}</span>}
+      {best > 0 && <span className="tag nocap">{t('Best:')} {fmtNum(storedFromKg(best, S.unit))} {S.unit}</span>}
     </div>
-    {last && <div className="small dim" style={{ marginBottom: 4 }}>{t('Last time')} ({fmtDate(last.d)}): {last.sets.map(s => setLabel(entry.id, s, last.target)).join(', ')}</div>}
+    {last && <div className="small dim" style={{ marginBottom: 4 }}>{t('Last time')} ({fmtDate(last.d)}): {last.sets.map(s => setLabel(entry.id, s, last.target, S.unit)).join(', ')}</div>}
     {plan && plan.why && plan.kind !== 'off' && <div className={'progline' + (plan.kind === 'deload' ? ' warn' : '')}>
       <Icon name={plan.kind === 'up' ? 'arrowUp' : plan.kind === 'deload' ? 'arrowDown' : 'lightbulb'} />
       <span>{t(...plan.why)}</span>
@@ -184,11 +186,12 @@ function ActiveWorkout() {
   // Clearing an optional field drops the key rather than storing null, so a set only carries
   // what was actually logged — in the session, in history and in a backup.
   const setField = (idx, i, field, v) => mutEntry(idx, e => {
-    if (v == null) delete e.sets[i][field]; else e.sets[i][field] = v
+    const stored = field === 'w' && v != null ? kgFromStored(v, S.unit) : v
+    if (stored == null) delete e.sets[i][field]; else e.sets[i][field] = stored
     // Changing a weight cascades to the following sets of the same phase, so a
     // heavier bar carries through the set instead of retyping every row.
     if (field === 'w') {
-      e.sets = cascadeWeight(e.sets, i, v)
+      e.sets = cascadeWeight(e.sets, i, stored)
     }
   })
   const modeAt = idx => modeOf({ ...(A.entries[idx].target || {}), id: A.entries[idx].id })

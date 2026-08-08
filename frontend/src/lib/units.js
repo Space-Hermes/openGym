@@ -7,12 +7,17 @@
 export const CANONICAL_UNIT = 'kg'
 export const LB_TO_KG = 0.45359237
 export const KG_TO_LB = 1 / LB_TO_KG
+export const UNIT_SCHEMA_VERSION = 1
 
-const UNIT_FIELDS = new Set(['unit', 'u', 'weightUnit', 'storedUnit', 'weight_unit', 'loadUnit'])
+const UNIT_FIELDS = new Set([
+  'unit', 'u', 'weightUnit', 'storedUnit', 'weight_unit', 'loadUnit',
+  'targetUnit', 'bodyweightUnit', 'bwUnit',
+])
 const WEIGHT_FIELDS = new Set([
-  'w', 'weight', 'topW', 'fallbackWeight', 'resolvedWeight', 'inc',
+  'w', 'weight', 'topW', 'fallbackWeight', 'resolvedWeight',
   'bw', 'workW', 'workWeight', 'workResolvedWeight', 'loadFallback', 'fallback'
 ])
+const MODES = new Set(['reps', 'time', 'cardio'])
 
 function isRecord(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -81,11 +86,21 @@ function convertWeight(value, unit) {
   return kgFromStored(value, unit)
 }
 
-function migrateNode(value, inheritedUnit = CANONICAL_UNIT) {
-  if (Array.isArray(value)) return value.map(item => migrateNode(item, inheritedUnit))
+function modeOf(record, inheritedMode) {
+  if (!isRecord(record)) return inheritedMode
+  if (MODES.has(record.mode)) return record.mode
+  if (isRecord(record.target) && MODES.has(record.target.mode)) return record.target.mode
+  if (record.sec != null || record.seconds != null || record.durationSec != null) return 'time'
+  if (record.min != null || record.minutes != null || record.speed != null) return 'cardio'
+  return inheritedMode
+}
+
+function migrateNode(value, inheritedUnit = CANONICAL_UNIT, inheritedMode) {
+  if (Array.isArray(value)) return value.map(item => migrateNode(item, inheritedUnit, inheritedMode))
   if (!isRecord(value)) return value
 
   const localUnit = unitOf(value, inheritedUnit)
+  const localMode = modeOf(value, inheritedMode)
   const out = {}
   for (const [key, child] of Object.entries(value)) {
     // Unit metadata is a one-time migration input, never a field we write into canonical state.
@@ -95,6 +110,14 @@ function migrateNode(value, inheritedUnit = CANONICAL_UNIT) {
       // Volume is recomputed from canonical rows below when possible. Keep a converted fallback
       // for legacy records that only carried the derived number.
       out[key] = numeric(child) === null ? child : convertWeight(child, localUnit)
+      continue
+    }
+
+    // `inc` is a load increment for reps, but seconds for timed progression. Converting a timed
+    // increment as a weight changes the user's progression rule on every load and is not
+    // recoverable after the unit stamp is consumed.
+    if (key === 'inc' && numeric(child) !== null) {
+      out[key] = localMode === 'time' ? child : convertWeight(child, localUnit)
       continue
     }
 
@@ -109,7 +132,7 @@ function migrateNode(value, inheritedUnit = CANONICAL_UNIT) {
       continue
     }
 
-    out[key] = migrateNode(child, localUnit)
+    out[key] = migrateNode(child, localUnit, localMode)
   }
 
   if (Array.isArray(out.entries)) {
@@ -135,10 +158,49 @@ function migrateNode(value, inheritedUnit = CANONICAL_UNIT) {
  * target, warm-up row, or weight prescription; it is consumed and removed. Therefore the result
  * has no per-set unit stamps and running this function again is a no-op.
  */
-export function migrateWorkoutsToKg(workouts) {
+export function migrateWorkoutsToKg(workouts, inheritedUnit = CANONICAL_UNIT) {
   if (!Array.isArray(workouts)) return []
-  return workouts.map(workout => migrateNode(workout, CANONICAL_UNIT))
+  return workouts.map(workout => migrateNode(workout, inheritedUnit))
 }
+
+const clone = value => JSON.parse(JSON.stringify(value))
+
+/**
+ * Normalize the complete persisted profile at the storage boundary.
+ *
+ * Pre-canonical backups used the profile's selected unit as their storage unit, while canonical
+ * profiles carry `unitsVersion` and always store weights in kg. Explicit nested stamps win over
+ * the legacy profile default in both cases. The output keeps `unit` as the display preference,
+ * removes consumed stamps, and is safe to run repeatedly.
+ */
+export function migrateStateToKg(state) {
+  if (!isRecord(state)) return {}
+  const out = clone(state)
+  const profileUnit = normalizeUnit(state.unit)
+  const isCanonical = Number(state.unitsVersion) >= UNIT_SCHEMA_VERSION
+  const legacyUnit = isCanonical ? CANONICAL_UNIT : profileUnit
+
+  out.unit = profileUnit
+  out.unitsVersion = UNIT_SCHEMA_VERSION
+  out.targetW = numeric(state.targetW) === null
+    ? state.targetW
+    : kgFromStored(state.targetW, state.targetUnit || legacyUnit)
+  delete out.targetUnit
+  out.bodyweight = Array.isArray(state.bodyweight)
+    ? migrateNode(state.bodyweight, legacyUnit)
+    : []
+  out.exWeights = isRecord(state.exWeights)
+    ? migrateNode(state.exWeights, legacyUnit)
+    : {}
+  out.routines = Array.isArray(state.routines)
+    ? migrateNode(state.routines, legacyUnit)
+    : []
+  out.workouts = migrateWorkoutsToKg(state.workouts, legacyUnit)
+  out.active = state.active == null ? null : migrateNode(state.active, legacyUnit)
+  return out
+}
+
+export const normalizeStateToKg = migrateStateToKg
 
 // Descriptive aliases are useful to boundary callers while the canonical names remain the
 // public contract for this slice.

@@ -4,6 +4,7 @@ import {
   storedFromKg,
   unitRound,
   migrateWorkoutsToKg,
+  migrateStateToKg,
   kgBodyweight,
 } from './units.js'
 
@@ -110,5 +111,53 @@ describe('workout migration', () => {
     expect(migrated[0].unit).toBeUndefined()
     expect(migrated[0].entries[0].unit).toBeUndefined()
     expect(migrated[0].entries[0].sets[0].unit).toBeUndefined()
+  })
+
+  it('does not convert timed progression increments as weights', () => {
+    const source = [{
+      unit: 'lb',
+      mode: 'time',
+      inc: 5,
+      target: { unit: 'lb', mode: 'time', inc: 10, weight: 50 },
+      sets: [{ unit: 'lb', mode: 'time', sec: 45, w: 50, done: true }],
+    }]
+
+    const migrated = migrateWorkoutsToKg(source)
+    expect(migrated[0].inc).toBe(5)
+    expect(migrated[0].target.inc).toBe(10)
+    expect(migrated[0].target.weight).toBe(50 * LB_TO_KG)
+    expect(migrated[0].sets[0].w).toBe(50 * LB_TO_KG)
+    expect(migrateWorkoutsToKg(migrated)).toEqual(migrated)
+  })
+})
+
+describe('canonical state migration', () => {
+  it('converges a stamped lb backup to canonical kg while retaining lb display preference', () => {
+    const source = {
+      unit: 'lb',
+      targetW: 176,
+      bodyweight: [{ d: '2026-01-01', w: 176, unit: 'lb' }],
+      exWeights: { squat: { w: 220, unit: 'lb', d: '2026-01-01' } },
+      routines: [{ id: 'r1', ex: [{ id: 'squat', mode: 'time', sec: 45, inc: 5, weight: 110, unit: 'lb' }] }],
+      workouts: [{
+        id: 'w1', unit: 'lb', bw: 176,
+        entries: [{ id: 'squat', unit: 'lb', target: { unit: 'lb', mode: 'time', inc: 10, weight: 110 },
+          sets: [{ unit: 'lb', mode: 'time', sec: 45, w: 110, done: true }] }],
+      }],
+    }
+
+    const migrated = migrateStateToKg(source)
+    expect(migrated.unit).toBe('lb')
+    expect(migrated.targetW).toBe(176 * LB_TO_KG)
+    expect(migrated.bodyweight[0].w).toBe(176 * LB_TO_KG)
+    expect(migrated.exWeights.squat.w).toBe(220 * LB_TO_KG)
+    expect(migrated.routines[0].ex[0].weight).toBe(110 * LB_TO_KG)
+    expect(migrated.routines[0].ex[0].inc).toBe(5)
+    expect(migrated.workouts[0].bw).toBe(176 * LB_TO_KG)
+    expect(migrated.workouts[0].entries[0].sets[0].w).toBe(110 * LB_TO_KG)
+    expect(migrated.workouts[0].entries[0].target.inc).toBe(10)
+    expect(migrated.workouts[0].unit).toBeUndefined()
+    expect(migrated.workouts[0].entries[0].sets[0].unit).toBeUndefined()
+    expect(migrateStateToKg(migrated)).toEqual(migrated)
   })
 })
