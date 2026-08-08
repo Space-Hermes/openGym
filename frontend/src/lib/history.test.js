@@ -30,6 +30,11 @@ describe('modeOf', () => {
     expect(modeOf({ id: CARDIO, mode: '' })).toBe('cardio')
   })
 
+  it('recovers legacy timed records from their seconds field', () => {
+    expect(modeOf({ id: LIFT, sec: 45, inc: 5 })).toBe('time')
+    expect(modeOf({ id: LIFT, mode: 'reps', sec: 45 })).toBe('reps')
+  })
+
   it('exposes the timed check', () => {
     expect(isTimed({ id: LIFT, mode: 'time' })).toBe(true)
     expect(isTimed({ id: LIFT })).toBe(false)
@@ -65,6 +70,11 @@ describe('setLabel', () => {
   it('reads a legacy set with no config exactly as before', () => {
     expect(setLabel(LIFT, { w: 0, r: 0 })).toBe('0×0')
     expect(setLabel(CARDIO, {})).toBe('0 min @ 0 km/h')
+  })
+
+  it('converts canonical loads at the display boundary, including legacy timed records', () => {
+    expect(setLabel(LIFT, { w: 100, r: 5 }, undefined, 'lb')).toContain('220.5 lb')
+    expect(setLabel(LIFT, { sec: 90, w: 100 }, { sec: 90 }, 'lb')).toContain('220.5 lb')
   })
 
   it('appends RIR when present, including a valid 0', () => {

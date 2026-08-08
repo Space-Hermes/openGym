@@ -12,7 +12,7 @@ import { EXIDX, isBodyweightEq } from './exercises.js'
 import { modeOf, fmtSec, isBw, isPerSide, sideReps } from './history.js'
 import { uid, todayISO, DAYN, fmtNum, exCount } from './format.js'
 import { t } from './i18n-core.js'
-import { storedFromKg } from './units.js'
+import { kgFromStored, normalizeUnit, storedFromKg } from './units.js'
 
 const PLAN_FMT = 1
 const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]   // Mon-first, matching the Plan screen
@@ -60,7 +60,7 @@ export function buildPlanBundle(S, name) {
     .map(c => ({ id: c.id, n: c.n, bp: c.bp, ...(c.desc ? { desc: c.desc } : {}) }))
   const week = {}
   WEEK_ORDER.forEach(d => { if (S.week?.[d]) week[d] = S.week[d] })
-  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', week, routines, customEx }
+  return { opengym_plan: PLAN_FMT, exported: todayISO(), name: name || '', weightUnit: 'kg', week, routines, customEx }
 }
 
 /**
@@ -77,6 +77,7 @@ export function parsePlan(raw) {
   if (!data || !data.opengym_plan || !Array.isArray(data.routines)) {
     throw new Error(t('this isn’t an openGym plan file'))
   }
+  const sourceUnit = normalizeUnit(data.weightUnit ?? data.unit)
   const customEx = (Array.isArray(data.customEx) ? data.customEx : []).filter(c => c && c.id)
   const known = new Set(customEx.map(c => c.id))
   let dropped = 0
@@ -90,6 +91,7 @@ export function parsePlan(raw) {
   }))
   return {
     name: (data.name || '').trim(),
+    sourceUnit,
     routines,
     week: data.week || {},
     customEx,
@@ -100,6 +102,14 @@ export function parsePlan(raw) {
   }
 }
 
+/** Convert legacy plan loads and progression increments before they enter canonical state. */
+function canonicalEx(e, sourceUnit) {
+  const out = { ...e }
+  if (out.weight != null) out.weight = kgFromStored(out.weight, sourceUnit)
+  if (out.inc != null && modeOf(out) !== 'time') out.inc = kgFromStored(out.inc, sourceUnit)
+  return out
+}
+
 /**
  * Merge a parsed bundle into a draft state `s` (call inside store.update).
  *  - customs: reuse one you already have with the same name + body part, else add it fresh
@@ -108,6 +118,7 @@ export function parsePlan(raw) {
  *    leaves empty become rest days — a half-overwritten week would silently mix two plans)
  */
 export function mergePlan(s, bundle, { schedule } = {}) {
+  const sourceUnit = normalizeUnit(bundle.sourceUnit)
   s.customEx = s.customEx || []
   const exIdMap = {}
   bundle.customEx.forEach(c => {
@@ -126,7 +137,7 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       name: r.name || t('Shared routine'),
       emoji: r.emoji,
       ...(r.prog ? { prog: r.prog } : {}),
-      ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || e.id }))
+      ex: (r.ex || []).map(e => canonicalEx({ ...e, id: exIdMap[e.id] || e.id }, sourceUnit))
     })
   })
   if (schedule) {

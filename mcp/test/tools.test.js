@@ -129,6 +129,59 @@ describe('get_routine', () => {
     expect(c.min).toBe(20)
     expect(c.speed).toBe(8)
   })
+
+  test('renders canonical loads in the profile display unit', () => {
+    const push = S.routines.find(r => r.name === 'Push Day')
+    push.ex[0] = { ...push.ex[0], weight: 100 }
+    S.unit = 'lb'
+
+    const routine = call('get_routine', { routine_id: push.id })
+    expect(routine.unit).toBe('lb')
+    expect(routine.exercises[0].weight).toBeCloseTo(100 / 0.45359237, 8)
+    expect(routine.exercises[0].summary).toContain('lb')
+
+    S.workouts = [{
+      id: 'lb-view', d: '2026-07-25', start: 0, end: 1800000, routineId: push.id, name: 'Push',
+      bw: 80, entries: [{
+        id: push.ex[0].id,
+        target: {
+          mode: 'reps', weight: 100, topW: 101, fallbackWeight: 50, resolvedWeight: 40,
+          bw: 10, workW: 75, workWeight: 80, workResolvedWeight: 90,
+          loadFallback: 30, fallback: 25, inc: 5,
+          weightPrescription: { fallbackWeight: 20, workW: 15 },
+          warmup: [{ weight: 5, loadFallback: 2 }],
+        },
+        sets: [{ w: 100, r: 5, done: true }],
+      }],
+    }]
+
+    const workout = call('get_workout', { workout_id: 'lb-view' })
+    expect(workout.unit).toBe('lb')
+    expect(workout.bodyweight_at_workout).toBeCloseTo(80 / 0.45359237, 8)
+    expect(workout.entries[0].sets[0].w).toBeCloseTo(100 / 0.45359237, 8)
+    expect(workout.entries[0].sets[0].label).toContain('lb')
+    const target = workout.entries[0].target
+    for (const [key, value] of Object.entries({
+      weight: 100, topW: 101, fallbackWeight: 50, resolvedWeight: 40, bw: 10,
+      workW: 75, workWeight: 80, workResolvedWeight: 90, loadFallback: 30, fallback: 25, inc: 5,
+    })) expect(target[key]).toBeCloseTo(value / 0.45359237, 8)
+    expect(target.weightPrescription.fallbackWeight).toBeCloseTo(20 / 0.45359237, 8)
+    expect(target.weightPrescription.workW).toBeCloseTo(15 / 0.45359237, 8)
+    expect(target.warmup[0].weight).toBeCloseTo(5 / 0.45359237, 8)
+    expect(target.warmup[0].loadFallback).toBeCloseTo(2 / 0.45359237, 8)
+  })
+
+  test('recovers a legacy timed target without converting its seconds increment', () => {
+    S.unit = 'lb'
+    S.workouts = [{
+      id: 'legacy-timed', d: '2026-07-26', start: 0, end: 60000, routineId: null, name: 'Timed',
+      entries: [{ id: '0025', target: { sec: 45, inc: 5 }, sets: [{ sec: 45, w: 0, done: true }] }],
+    }]
+
+    const workout = call('get_workout', { workout_id: 'legacy-timed' })
+    expect(workout.entries[0].mode).toBe('time')
+    expect(workout.entries[0].target.inc).toBe(5)
+  })
 })
 
 /* ---------- get_week_plan ---------- */
@@ -364,6 +417,22 @@ describe('get_bodyweight', () => {
     expect(r.goal).toBeNull()
     r.entries.forEach(e => expect(e.delta_vs_goal).toBeNull())
     expect(r.latest.delta_vs_goal).toBeNull()
+  })
+
+  test('migrates a legacy pounds state before exposing MCP weights', () => {
+    const legacy = {
+      unit: 'lb',
+      targetW: 220,
+      bodyweight: [{ d: '2026-07-28', w: 180 }],
+      routines: [], week: {}, workouts: [], customEx: [], exWeights: {}
+    }
+    _seedStateForTests(legacy)
+
+    const r = call('get_bodyweight')
+
+    expect(r.unit).toBe('lb')
+    expect(r.goal).toBeCloseTo(220, 8)
+    expect(r.latest.weight).toBeCloseTo(180, 8)
   })
 })
 

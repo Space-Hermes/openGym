@@ -20,7 +20,14 @@
 
 import { EXDB, EXIDX } from './exercises.js'
 import { uid } from './format.js'
-import { kgFromStored, migrateWorkoutsToKg } from './units.js'
+import { kgFromStored, migrateStateToKg, migrateWorkoutsToKg, normalizeUnit } from './units.js'
+
+const sourceUnitToken = raw => {
+  const token = String(raw ?? '').trim().toLowerCase()
+  if (/^(?:lb|lbs|pound|pounds)$/.test(token)) return 'lb'
+  if (/^(?:kg|kgs|kilo|kilos|kilogram|kilograms)$/.test(token)) return 'kg'
+  return ''
+}
 
 /* ----------------------------------------------------------------- CSV ---- */
 
@@ -305,7 +312,7 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
   const created = new Map()
   const unmatched = new Set()
   let sets = 0, skipped = 0, matched = 0, warmups = 0, rpeSets = 0, rirSets = 0
-  let sawLb = false, sawKg = false
+  let sawLb = false, sawKg = false, weightedRows = 0
 
   const cell = (r, f) => (map[f] === undefined ? '' : String(r[map[f]] ?? '').trim())
 
@@ -321,11 +328,11 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     else if (map.weightLb !== undefined && cell(r, 'weightLb')) { w = num(cell(r, 'weightLb')); rowUnit = 'lb' }
     else {
       w = num(cell(r, 'weight'))
-      const u = cell(r, 'weightUnit').toLowerCase()
-      rowUnit = u.startsWith('lb') ? 'lb' : u.startsWith('kg') ? 'kg' : ''
+      rowUnit = sourceUnitToken(cell(r, 'weightUnit'))
     }
     if (rowUnit === 'lb') sawLb = true
     if (rowUnit === 'kg') sawKg = true
+    if (w > 0) weightedRows++
 
     const reps = Math.round(num(cell(r, 'reps')))
     const secs = num(cell(r, 'seconds'))
@@ -386,11 +393,12 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
   // otherwise a single-unit file supplies the provenance, and an unannotated file follows the
   // profile unit selected by the caller. The profile unit is a source hint only — it is never the
   // storage/display unit of the parsed record.
-  const fileUnit = sawLb && !sawKg ? 'lb' : sawKg && !sawLb ? 'kg' : ''
+  const fileUnit = sawLb && !sawKg ? 'lb' : sawKg && !sawLb ? 'kg'
+    : weightedRows ? normalizeUnit(unit) : ''
   const mixedUnits = sawLb && sawKg
   const sourceUnitFor = s => s.u || fileUnit || unit
   const convRow = s => kgFromStored(s.w, sourceUnitFor(s))
-  const converted = (!!fileUnit && fileUnit !== unit) || mixedUnits
+  const converted = mixedUnits || sawLb || (!sawLb && !sawKg && fileUnit === 'lb')
 
   const dates = [...byDate.keys()].sort()
   const workouts = dates.map(d => {
@@ -436,16 +444,13 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
 export function parseBodyweight(text, { unit = 'kg' } = {}) {
   const s = String(text)
   const out = new Map()          // iso date -> { w, t }  (one weigh-in per day, the last)
-  const explicitUnits = new Set()
   const sourceUnits = new Set()
   const sourceUnitOf = raw => {
-    const token = String(raw ?? '').trim().toLowerCase()
-    return token.startsWith('lb') ? 'lb' : token.startsWith('kg') ? 'kg' : unit
+    return sourceUnitToken(raw) || normalizeUnit(unit)
   }
-  const add = (date, weight, timestamp, rawUnit, explicit = false) => {
+  const add = (date, weight, timestamp, rawUnit) => {
     const sourceUnit = sourceUnitOf(rawUnit)
     sourceUnits.add(sourceUnit)
-    if (explicit) explicitUnits.add(sourceUnit)
     out.set(date, { w: kgFromStored(weight, sourceUnit), t: timestamp })
   }
 
@@ -460,7 +465,7 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
       if (!val || !dt) continue
       const when = parseWhen(dt[1])
       if (!when) continue
-      add(when.d, parseFloat(val[1]), new Date(dt[1]).getTime() || null, u && u[1], true)
+      add(when.d, parseFloat(val[1]), new Date(dt[1]).getTime() || null, u && u[1])
     }
   } else {
     const rows = parseCSV(s)
@@ -475,7 +480,6 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
       const raw = rows[i][wCol]
       const w = num(raw)
       if (!when || !w) continue
-      const explicit = map.weightKg !== undefined || map.weightLb !== undefined || map.weightUnit !== undefined
       const rowUnit = map.weightKg !== undefined
         ? 'kg'
         : map.weightLb !== undefined
@@ -483,14 +487,14 @@ export function parseBodyweight(text, { unit = 'kg' } = {}) {
           : map.weightUnit !== undefined
             ? rows[i][map.weightUnit]
             : unit
-      add(when.d, w, new Date(when.d).getTime() + (when.t ?? 0), rowUnit, explicit)
+      add(when.d, w, new Date(when.d).getTime() + (when.t ?? 0), rowUnit)
     }
   }
 
   if (!out.size) return { error: 'unrecognised' }
-  const fileUnit = explicitUnits.size === 1 ? [...explicitUnits][0] : ''
+  const fileUnit = sourceUnits.size === 1 ? [...sourceUnits][0] : ''
   const mixedUnits = sourceUnits.size > 1
-  const converted = !!fileUnit && fileUnit !== unit
+  const converted = mixedUnits || sourceUnits.has('lb')
   const dates = [...out.keys()].sort()
   return {
     kind: 'bodyweight', source: 'Apple Health',
@@ -513,6 +517,13 @@ export function parseImport(text, opts) {
 
 /** Merge into state. Existing days win — importing twice never duplicates a workout. */
 export function mergeImport(S, parsed) {
+  // Imports can be the first write after an old backup was loaded. Normalize the complete draft
+  // before the date-dedupe check so legacy rows cannot remain in a mixed-unit state merely because
+  // their dates collide with or precede the incoming file.
+  const canonicalState = migrateStateToKg(S)
+  for (const key of Object.keys(S)) delete S[key]
+  Object.assign(S, canonicalState)
+
   if (parsed.kind === 'bodyweight') {
     // Bodyweight parsers already emit kg, but the merge boundary also accepts legacy/manual
     // records with per-row unit metadata. Reusing the migration shim here makes both paths safe

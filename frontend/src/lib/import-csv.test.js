@@ -23,6 +23,7 @@ describe('canonical workout import boundary', () => {
     const entry = workout.entries[0]
 
     expect(entry.sets.map(set => set.w)).toEqual([100 * LB_TO_KG, 60])
+    expect(parsed.converted).toBe(true)
     expect(entry.sets.every(set => !('u' in set))).toBe(true)
     expect(entry.topW).toBe(60)
     expect(workout.vol).toBe(100 * LB_TO_KG * 5 + 60 * 5)
@@ -52,6 +53,7 @@ describe('canonical bodyweight import boundary', () => {
     const parsed = parseBodyweight(xml, { unit: 'lb' })
 
     expect(parsed.bodyweight.map(row => row.w)).toEqual([180 * LB_TO_KG, 70])
+    expect(parsed.converted).toBe(true)
     expect(parsed.bodyweight.every(row => !('unit' in row))).toBe(true)
   })
 
@@ -65,6 +67,21 @@ describe('canonical bodyweight import boundary', () => {
     const parsed = parseBodyweight(csv, { unit: 'kg' })
 
     expect(parsed.bodyweight.map(row => row.w)).toEqual([180 * LB_TO_KG, 70])
+  })
+
+  it('accepts pound aliases in workout and bodyweight unit metadata', () => {
+    const workouts = parseWorkoutCSV([
+      'Date,Exercise,Weight,Weight Unit,Reps',
+      '2026-08-11,Bench Press,100,pounds,5',
+    ].join('\n'), { unit: 'kg' })
+    const bodyweight = parseBodyweight([
+      'Date,Weight,Weight Unit',
+      '2026-08-11,180,pound',
+    ].join('\n'), { unit: 'kg' })
+
+    expect(workouts.workouts[0].entries[0].sets[0].w).toBe(100 * LB_TO_KG)
+    expect(bodyweight.bodyweight[0].w).toBe(180 * LB_TO_KG)
+    expect(bodyweight.converted).toBe(true)
   })
 })
 
@@ -117,5 +134,39 @@ describe('canonical merge boundary', () => {
     expect(state.bodyweight[0].w).toBe(70)
     expect(state.workouts[0].entries[0].sets[0].w).toBe(60)
     expect(state.workouts[0].vol).toBe(300)
+  })
+
+  it('migrates pre-existing legacy state before merging new canonical records', () => {
+    const state = {
+      ...emptyState(),
+      unit: 'lb',
+      bodyweight: [{ d: '2026-01-01', w: 180, unit: 'lb' }],
+      exWeights: { '0025': { w: 200, unit: 'lb' } },
+      workouts: [{
+        id: 'old', d: '2026-01-01', unit: 'lb', bw: 180,
+        entries: [{ id: '0025', sets: [{ w: 200, r: 5, done: true }] }],
+      }],
+    }
+
+    const parsed = {
+      kind: 'workouts',
+      customEx: [],
+      workouts: [{
+        id: 'new', d: '2026-01-02',
+        entries: [{ id: '0025', sets: [{ w: 100, r: 5, done: true }] }],
+      }],
+    }
+    mergeImport(state, parsed)
+
+    expect(state.bodyweight[0].w).toBe(180 * LB_TO_KG)
+    expect(state.workouts[0].bw).toBe(180 * LB_TO_KG)
+    expect(state.workouts[0].entries[0].sets[0].w).toBe(200 * LB_TO_KG)
+    expect(state.workouts[1].entries[0].sets[0].w).toBe(100)
+    expect(state.exWeights['0025'].w).toBe(200 * LB_TO_KG)
+    expect(state.workouts.every(w => !('unit' in w))).toBe(true)
+
+    const snapshot = JSON.stringify(state)
+    mergeImport(state, parsed)
+    expect(JSON.stringify(state)).toBe(snapshot)
   })
 })

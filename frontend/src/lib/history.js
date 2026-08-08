@@ -19,6 +19,9 @@ import { t } from './i18n-core.js'
 export function modeOf(cfg) {
   const m = cfg && cfg.mode
   if (m === 'reps' || m === 'time' || m === 'cardio') return m
+  // Older timed records did not always persist the discriminator. A duration field is an
+  // unambiguous legacy signal; explicit modes above still win over stale fields after a switch.
+  if (cfg && (cfg.sec != null || cfg.seconds != null || cfg.durationSec != null)) return 'time'
   return isCardio(cfg && cfg.id) ? 'cardio' : 'reps'
 }
 export const isTimed = cfg => modeOf(cfg) === 'time'
@@ -101,17 +104,18 @@ export function setLabel(id, s, cfg, unit = 'kg') {
   const mode = modeOf(c)
   if (mode === 'cardio') return `${s.min || 0} min @ ${fmtNum(s.speed || 0)} km/h`
   const weight = storedFromKg(s.w || 0, unit)
-  if (mode === 'time') return fmtSec(s.sec) + (weight > 0 ? ` · ${fmtNum(weight)}` : '')
+  const suffix = unit === 'kg' ? '' : ` ${unit}`
+  if (mode === 'time') return fmtSec(s.sec) + (weight > 0 ? ` · ${fmtNum(weight)}${suffix}` : '')
   // Bodyweight reads as what you did — "12", or "+10 × 12" once there is a belt involved —
   // rather than "0×12", which says a set was performed with no weight and means nothing.
   // A per-side set needs no mark here: the number logged is the total, the same as every
   // other set in the app.
   const reps = s.r || 0
   if (isBw({ ...c, id: c.id ?? id })) {
-    const load = weight > 0 ? `+${fmtNum(weight)} × ` : ''
+    const load = weight > 0 ? `+${fmtNum(weight)}${suffix} × ` : ''
     return `${load}${reps}` + effortTail(s)
   }
-  return `${fmtNum(weight)}×${reps}` + effortTail(s)
+  return `${fmtNum(weight)}${suffix}×${reps}` + effortTail(s)
 }
 // Default config for a freshly added exercise.
 export function defaultConfig(id, mode) {

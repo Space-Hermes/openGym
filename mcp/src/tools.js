@@ -10,6 +10,7 @@ import {
   modeOf, workoutVolume, setsDone, effectiveRoutine, effectiveRoutineId
 } from '../../frontend/src/lib/history.js'
 import { EXIDX, exOr } from '../../frontend/src/lib/exercises.js'
+import { storedFromKg } from '../../frontend/src/lib/units.js'
 import {
   estimate1RM, best1RM, e1rmSeries, DEFAULT_FORMULA, REP_CAP
 } from '../../frontend/src/lib/onerm.js'
@@ -17,8 +18,25 @@ import { loadOfWorkouts, rankOf, levelsOf } from '../../frontend/src/lib/muscles
 
 /* ---------- helpers ---------- */
 
+function displayTarget(target, unit) {
+  if (!target) return target
+  const out = { ...target }
+  const mode = modeOf(target)
+  for (const key of [
+    'weight', 'topW', 'fallbackWeight', 'resolvedWeight', 'bw',
+    'workW', 'workWeight', 'workResolvedWeight', 'loadFallback', 'fallback',
+  ]) {
+    if (out[key] != null) out[key] = storedFromKg(out[key], unit)
+  }
+  if (out.inc != null && mode !== 'time') out.inc = storedFromKg(out.inc, unit)
+  if (out.weightPrescription) out.weightPrescription = displayTarget(out.weightPrescription, unit)
+  if (Array.isArray(out.warmup)) out.warmup = out.warmup.map(row => displayTarget(row, unit))
+  return out
+}
+
 function entryView(e, S) {
   const ex = exOr(e.id)
+  const unit = S.unit || 'kg'
   // Spread id into the cfg the way every call site in the app does (Workout.jsx, Stats.jsx,
   // progression.js) — the sheet saves a cardio target as {sets, min, speed} with no id and no
   // mode, so modeOf needs the id to fall through to isCardio(id).
@@ -29,11 +47,11 @@ function entryView(e, S) {
     name: ex.n,
     body_part: ex.bp || null,
     mode,
-    target: e.target || null,
+    target: displayTarget(e.target, unit),
     sets: (e.sets || []).map(s => ({
       done: !!s.done,
-      label: setLabel(e.id, { ...s, done: undefined }, cfg),
-      w: Number(s.w) || 0,
+      label: setLabel(e.id, { ...s, done: undefined }, cfg, unit),
+      w: storedFromKg(Number(s.w) || 0, unit),
       r: Number(s.r) || 0,
       sec: Number(s.sec) || 0,
       min: Number(s.min) || 0,
@@ -44,6 +62,7 @@ function entryView(e, S) {
 
 // Best estimate per exercise, mirroring the UI's PR table: every eligible set across history, biggest wins.
 function prTable(S, formula) {
+  const unit = S.unit || 'kg'
   const byId = new Map()
   for (const w of (S.workouts || [])) {
     for (const e of (w.entries || [])) {
@@ -53,15 +72,29 @@ function prTable(S, formula) {
         if (est == null) continue
         const ex = exOr(e.id)
         const prev = byId.get(e.id)
-        if (!prev || est > prev.est) {
+        if (!prev || est > prev.estKg) {
           // exId as well as exName: the consumer needs an id, not a name — exOr() treats any
           // string as both, so passing exName where exId belongs would silently "work" wrong.
-          byId.set(e.id, { exId: e.id, exName: ex.n, bp: ex.bp || null, est, w: Number(s.w), r: Math.round(Number(s.r)), date: w.d })
+          byId.set(e.id, {
+            exId: e.id,
+            exName: ex.n,
+            bp: ex.bp || null,
+            estKg: est,
+            wKg: Number(s.w),
+            r: Math.round(Number(s.r)),
+            date: w.d
+          })
         }
       }
     }
   }
-  return [...byId.values()].sort((a, b) => b.est - a.est)
+  return [...byId.values()]
+    .sort((a, b) => b.estKg - a.estKg)
+    .map(({ estKg, wKg, ...row }) => ({
+      ...row,
+      est: storedFromKg(estKg, unit),
+      w: storedFromKg(wKg, unit)
+    }))
 }
 
 /* ---------- the 8 tools ---------- */
@@ -108,6 +141,7 @@ export const getRoutine = {
       exercises: (r.ex || []).map((cfg, i) => {
         const ex = exOr(cfg.id)
         const mode = modeOf(cfg)
+        const unit = S.unit || 'kg'
         return {
           position: i + 1,
           id: cfg.id,
@@ -120,11 +154,11 @@ export const getRoutine = {
           sec: mode === 'time' ? (cfg.sec || 0) : undefined,
           min: mode === 'cardio' ? (cfg.min || 0) : undefined,
           speed: mode === 'cardio' ? (cfg.speed || 0) : undefined,
-          weight: cfg.weight != null ? cfg.weight : undefined,
-          increment: cfg.inc != null ? cfg.inc : undefined,
+          weight: cfg.weight != null ? storedFromKg(cfg.weight, unit) : undefined,
+          increment: cfg.inc != null ? (mode === 'time' ? cfg.inc : storedFromKg(cfg.inc, unit)) : undefined,
           policy_override: cfg.policy || null,
           superset_group: cfg.sg || null,
-          summary: exLine(cfg, S.unit || 'kg')
+          summary: exLine(cfg, unit)
         }
       })
     }
@@ -188,24 +222,27 @@ export const listWorkouts = {
       unit: S.unit || 'kg',
       total_count: all.length,
       returned_count: filtered.length,
-      workouts: filtered.map(w => ({
-        // The only thing that identifies a session uniquely. Two workouts on one day is
-        // ordinary — a lifting session and an evening run — and without an id here the second
-        // one cannot be asked about at all.
-        id: w.id || null,
-        date: w.d,
-        routine_id: w.routineId || null,
-        routine_name: w.name || null,
-        exercise_count: (w.entries || []).length,
-        sets_done: setsDone(w),
-        sets_planned: plannedSets(w),
-        sets_ratio: ratio(setsDone(w), plannedSets(w)),
-        volume: workoutVolume(w),
-        duration_ms: w.end && w.start ? (w.end - w.start) : null,
-        duration: w.end && w.start ? friendlyDuration(w.end - w.start) : null,
-        prs: (w.prs || []).length,
-        bodyweight_at_workout: w.bw || null
-      }))
+      workouts: filtered.map(w => {
+        const unit = S.unit || 'kg'
+        return {
+          // The only thing that identifies a session uniquely. Two workouts on one day is
+          // ordinary — a lifting session and an evening run — and without an id here the second
+          // one cannot be asked about at all.
+          id: w.id || null,
+          date: w.d,
+          routine_id: w.routineId || null,
+          routine_name: w.name || null,
+          exercise_count: (w.entries || []).length,
+          sets_done: setsDone(w),
+          sets_planned: plannedSets(w),
+          sets_ratio: ratio(setsDone(w), plannedSets(w)),
+          volume: storedFromKg(workoutVolume(w), unit),
+          duration_ms: w.end && w.start ? (w.end - w.start) : null,
+          duration: w.end && w.start ? friendlyDuration(w.end - w.start) : null,
+          prs: (w.prs || []).length,
+          bodyweight_at_workout: w.bw != null ? storedFromKg(w.bw, unit) : null
+        }
+      })
     }
   }
 }
@@ -241,12 +278,13 @@ export const getWorkout = {
         return {
           ambiguous: true,
           date,
+          unit: S.unit || 'kg',
           message: `${sameDay.length} workouts were logged on ${date} — call get_workout again with one of these workout_id values.`,
           workouts: sameDay.map(x => ({
             id: x.id || null,
             routine_name: x.name || null,
             sets_done: setsDone(x),
-            volume: workoutVolume(x),
+            volume: storedFromKg(workoutVolume(x), S.unit || 'kg'),
             duration: x.end && x.start ? friendlyDuration(x.end - x.start) : null
           }))
         }
@@ -261,8 +299,8 @@ export const getWorkout = {
       routine_id: w.routineId || null,
       routine_name: w.name || null,
       unit: S.unit || 'kg',
-      bodyweight_at_workout: w.bw || null,
-      volume: workoutVolume(w),
+      bodyweight_at_workout: w.bw != null ? storedFromKg(w.bw, S.unit || 'kg') : null,
+      volume: storedFromKg(workoutVolume(w), S.unit || 'kg'),
       sets_done: setsDone(w),
       sets_planned: plannedSets(w),
       duration: w.end && w.start ? friendlyDuration(w.end - w.start) : null,
@@ -283,7 +321,8 @@ export const getBodyweight = {
   handler: ({ from, to }) => {
     const S = getState()
     if (!S) return noState()
-    const goal = S.targetW || null
+    const goal = S.targetW != null ? S.targetW : null
+    const unit = S.unit || 'kg'
     const bw = (S.bodyweight || []).filter(b => {
       if (from && b.d < from) return false
       if (to && b.d > to) return false
@@ -291,14 +330,18 @@ export const getBodyweight = {
     }).sort((a, b) => (a.d || '').localeCompare(b.d || ''))
     const latest = bw.length ? bw[bw.length - 1] : null
     return {
-      unit: S.unit || 'kg',
-      goal,
+      unit,
+      goal: goal != null ? storedFromKg(goal, unit) : null,
       count: bw.length,
-      latest: latest ? { date: latest.d, weight: latest.w, delta_vs_goal: goal != null ? Math.round((latest.w - goal) * 10) / 10 : null } : null,
+      latest: latest ? {
+        date: latest.d,
+        weight: storedFromKg(latest.w, unit),
+        delta_vs_goal: goal != null ? Math.round(storedFromKg(latest.w - goal, unit) * 10) / 10 : null
+      } : null,
       entries: bw.map(b => ({
         date: b.d,
-        weight: b.w,
-        delta_vs_goal: goal != null ? Math.round((b.w - goal) * 10) / 10 : null
+        weight: storedFromKg(b.w, unit),
+        delta_vs_goal: goal != null ? Math.round(storedFromKg(b.w - goal, unit) * 10) / 10 : null
       }))
     }
   }
@@ -316,6 +359,7 @@ export const estimate1rm = {
     const S = getState()
     if (!S) return noState()
     const f = formula || DEFAULT_FORMULA
+    const unit = S.unit || 'kg'
     if (exercise_id) {
       const ex = exOr(exercise_id)
       const best = best1RM(S, exercise_id, f)
@@ -330,15 +374,17 @@ export const estimate1rm = {
         exercise: { id: exercise_id, name: ex.n, body_part: ex.bp || null },
         formula: f,
         formula_note: `Estimates use the ${f} formula. Cap at ${REP_CAP} reps applies; r=1 is treated as the measurement, not an estimate.`,
-        best: best ? { est: best.est, w: best.w, r: best.r, date: best.d } : null,
+        unit,
+        best: best ? { est: storedFromKg(best.est, unit), w: storedFromKg(best.w, unit), r: best.r, date: best.d } : null,
         no_estimate_reason: best ? null
           : trainedAtAll
             ? `This exercise has logged sets, but none of them qualify: every set was above the ${REP_CAP}-rep cap, or carried no weight. That is not the same as never having trained it.`
             : 'No completed sets logged for this exercise.',
-        trend: series.map(p => ({ date: p.d, est: p.y, w: p.w, r: p.r }))
+        trend: series.map(p => ({ date: p.d, est: storedFromKg(p.y, unit), w: storedFromKg(p.w, unit), r: p.r }))
       }
     }
     return {
+      unit,
       formula: f,
       formula_note: `Estimates use the ${f} formula. Cap at ${REP_CAP} reps applies; r=1 is treated as the measurement, not an estimate.`,
       pr_table: prTable(S, f)
