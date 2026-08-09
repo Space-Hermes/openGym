@@ -10,6 +10,9 @@
 import { EXIDX } from './exercises.js'
 import { isWorkRow } from './history.js'
 
+// R1+R2 use the shared work-row boundary: an explicit phase warm-up must not count as
+// muscle-load work merely because the legacy boolean marker is absent.
+
 // The muscles a map can shade, in head-to-toe order — also the order of any list
 // built from them, so "what am I neglecting" reads top-down like a body.
 export const MUSCLES = [

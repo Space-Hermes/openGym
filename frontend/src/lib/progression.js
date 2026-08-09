@@ -19,6 +19,8 @@
 import { modeOf, repStep, isWarmupRow, isWorkRow } from './history.js'
 import { EXIDX } from './exercises.js'
 
+// Keep the R1+R2 warm-up semantics for both legacy boolean and explicit phase rows.
+
 export const POLICIES = ['off', 'linear', 'greyskull', 'double', 'time']
 
 // Which policies can sensibly drive which logging mode.
