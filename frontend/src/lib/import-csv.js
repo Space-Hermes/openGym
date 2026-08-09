@@ -20,6 +20,7 @@
 
 import { EXDB, EXIDX } from './exercises.js'
 import { uid } from './format.js'
+import { modeOf, isWorkRow } from './history.js'
 
 /* ----------------------------------------------------------------- CSV ---- */
 
@@ -334,7 +335,8 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
       ? num(cell(r, 'distanceKm'))
       : toKm(cell(r, 'distance'), cell(r, 'distanceUnit'))
     if (!w && !reps && !mins && !km) { skipped++; continue }
-    if (/warm/i.test(cell(r, 'setType'))) warmups++
+    const warmup = /warm/i.test(cell(r, 'setType'))
+    if (warmup) warmups++
 
     const key = keyOf(name)
     let id = resolved.get(key)
@@ -358,7 +360,7 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     // it never reaches the stored set.
     const set = isCardio
       ? { min: mins || 0, speed: mins > 0 ? Math.round(km / (mins / 60) * 10) / 10 : 0, done: true }
-      : { w, r: reps || 0, done: true, u: rowUnit }
+      : { w, r: reps || 0, done: true, u: rowUnit, ...(warmup ? { warmup: true } : {}) }
     // Effort rides along only where the app can show it again: a weighted rep set. A treadmill
     // row with an RPE would have nowhere to put it. A set is kept on one scale, so a file
     // carrying both columns is read as RIR — the same precedence setLabel reads them back with.
@@ -405,7 +407,9 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
     const day = byDate.get(d)
     const entries = [...day.ex.entries()].map(([id, ss]) => {
       const conv2 = ss.map(({ u, ...s }) => (s.w !== undefined ? { ...s, w: convRow({ ...s, u }) } : s))
-      const mx = Math.max(0, ...conv2.map(s => s.w || 0))
+      const mx = Math.max(0, ...conv2
+        .filter(s => isWorkRow(s) && modeOf({ id }) === 'reps')
+        .map(s => s.w || 0))
       return { id, sets: conv2, topW: mx || null }
     })
     const base = new Date(d + 'T00:00:00').getTime()
@@ -415,7 +419,7 @@ export function parseWorkoutCSV(text, { unit = 'kg' } = {}) {
       id: 'iw' + uid(), d, start, end: end > start ? end : start,
       routineId: null, name: day.name || 'Imported', entries, prs: [],
     }
-    w.vol = entries.reduce((a, e) => a + e.sets.reduce((b, s) => b + (s.w || 0) * (s.r || 0), 0), 0)
+    w.vol = entries.reduce((a, e) => a + e.sets.reduce((b, s) => b + (isWorkRow(s) ? (s.w || 0) * (s.r || 0) : 0), 0), 0)
     return w
   })
 
@@ -519,7 +523,8 @@ export function mergeImport(S, parsed) {
   S.workouts = [...S.workouts, ...fresh].sort((a, b) => (a.d < b.d ? -1 : 1))
   // seed the weight suggestions from the newest imported set of each lift
   fresh.forEach(w => w.entries.forEach(e => {
-    const mx = Math.max(0, ...e.sets.map(s => s.w || 0), e.topW || 0)
+    const workSets = e.sets.filter(s => isWorkRow(s) && modeOf({ id: e.id }) === 'reps')
+    const mx = Math.max(0, ...workSets.map(s => s.w || 0), e.topW || 0)
     if (mx > 0) { const cur = S.exWeights[e.id]; if (!cur || w.d >= cur.d) S.exWeights[e.id] = { w: mx, d: w.d } }
   }))
   return { added: fresh.length, skipped: parsed.workouts.length - fresh.length }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { effectiveRoutines, effectiveRoutineIds, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
+import { effectiveRoutines, effectiveRoutineIds, completedRoutineIdsForDate, reconcileStartSessionChoice, streakWeeks, lastBW, setsDoneActive } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, isoOf, weekKey, DAYS } from '../lib/format.js'
 import { t, dateLocale } from '../lib/i18n.js'
 import { bwSheet, goalSheet, dayOverrideSheet, calendarSheet, startFlow, startSessionSheet, loadStarterPlan, bwDeltaColor } from '../sheets.jsx'
@@ -20,6 +20,9 @@ export default function Home() {
   const today = new Date()
   const todayPlans = effectiveRoutines(S, todayISO())
   const routine = todayPlans[0]
+  const doneToday = completedRoutineIdsForDate(S, todayISO())
+  const openRoutineId = reconcileStartSessionChoice(todayPlans, doneToday, null)
+  const openRoutine = todayPlans.find(r => r.id === openRoutineId) || null
   const todayOvr = Object.prototype.hasOwnProperty.call(S.dayPlan || {}, todayISO())
   const bw = lastBW(S)
   const prevBW = S.bodyweight.length > 1 ? S.bodyweight[S.bodyweight.length - 2] : null
@@ -44,7 +47,12 @@ export default function Home() {
   const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: b.t || new Date(b.d).getTime(), y: b.w, d: b.d }))
 
   // today's session shown right under the week strip
-  const onToday = () => { if (S.active) nav('/workout'); else if (todayPlans.length === 1) startFlow(routine.id); else if (todayPlans.length > 1) startSessionSheet(); else dayOverrideSheet(todayISO()) }
+  const onToday = () => {
+    if (S.active) nav('/workout')
+    else if (todayPlans.length === 1 && openRoutine) startFlow(openRoutine.id)
+    else if (todayPlans.length) startSessionSheet()
+    else dayOverrideSheet(todayISO())
+  }
 
   return <div className="narrow">
     <div className="hdr">
@@ -70,7 +78,8 @@ export default function Home() {
           </div>
         </div>
         {S.active ? <span className="tag" style={{ color: 'var(--orange)', background: 'color-mix(in srgb,var(--orange) 16%,transparent)' }}>{t('Resume')}</span>
-          : routine ? <span className="tag acc">{t('Start')}</span>
+          : openRoutine ? <span className="tag acc">{t('Start')}</span>
+          : todayPlans.length ? <span className="tag">{t('Done')}</span>
           : <Icon name="plus" className="chev" />}
       </div>
     </div>

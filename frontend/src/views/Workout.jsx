@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { exOr } from '../lib/exercises.js'
-import { effectiveRoutine, effectiveRoutines, lastEntryFor, bestWeightFor, buildSets, freestyleConfig, defaultConfig, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, cascadeWeight, insertWarmupRow, removeRowAt } from '../lib/history.js'
+import { effectiveRoutine, effectiveRoutines, completedRoutineIdsForDate, lastEntryFor, bestWeightFor, buildSets, freestyleConfig, defaultConfig, setsDoneActive, supersetUnits, unitOf, setLabel, modeOf, isBw, isPerSide, sideReps, repStep, EFFORT, effortOf, stepEffort, capEffort, cascadeWeight, insertWarmupRow, removeRowAt, isWarmupRow } from '../lib/history.js'
 import { fmtNum, fmtDate, todayISO, exCount, DAYN } from '../lib/format.js'
 import { beep, vibrate } from '../lib/sound.js'
 import { t } from '../lib/i18n.js'
@@ -23,10 +23,8 @@ function StartChooser() {
   const todayOvr = Object.prototype.hasOwnProperty.call(S.dayPlan || {}, todayISO())
   const plannedIds = new Set(todayPlans.map(r => r.id))
   const others = S.routines.filter(r => !plannedIds.has(r.id))
-  const iso = todayISO()
-  const doneToday = new Set()
-  ;(S.workouts || []).forEach(w => { if (String(w.d || '').slice(0, 10) === iso && w.routineId) doneToday.add(w.routineId) })
-  const todayLabel = todayPlans.length ? todayPlans.map(r => r.name).join(', ') : t('rest day, but no one\u2019s stopping you')
+  const doneToday = completedRoutineIdsForDate(S, todayISO())
+  const todayLabel = todayPlans.length ? todayPlans.map(r => r.name).join(', ') : t('rest day, but no one’s stopping you')
   return <div className="narrow">
     <div className="hdr"><div><h1>{t('Start workout')}</h1><div className="sub">{t(DAYN[new Date().getDay()])} \u2014 {todayPlans.length ? t('today is {0}', todayLabel) : todayLabel}</div></div></div>
     {todayPlans.length === 1 && !doneToday.has(todayPlans[0].id) && (
@@ -55,6 +53,12 @@ function StartChooser() {
     <Button icon="shuffle" onClick={() => startFlow(null)}>{t('Freestyle workout (pick as you go)')}</Button>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
   </div>
+}
+
+export function emptyWorkoutMessage(routineId) {
+  return routineId
+    ? `${t('{0} workout', t('Planned'))} — ${t('Add exercise')}`
+    : t('Freestyle workout — add your first exercise.')
 }
 
 /* ---------- elapsed clock (isolated so the workout tree doesn't re-render every second) ---------- */
@@ -146,13 +150,13 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
       {/* the header carries the same eff3 sizing as the rows, or the labels drift off their columns */}
       <div className={'sethead' + (col3 ? ' eff3' : '')}><span className="n-sp" /><span className="w-sp">{col1.hd}</span>{col2 && <span className="r-sp">{col2.hd}</span>}{col3 && <span className="eff-sp">{col3.hd}</span>}{timed && <span className="ck-sp" />}<span className="ck-sp" /></div>
       {entry.sets.map((s, i) => {
-        const warmBefore = i > 0 && !!entry.sets[i - 1].warmup
-        const isFirstWarmup = !!s.warmup && !warmBefore
+        const warmBefore = i > 0 && isWarmupRow(entry.sets[i - 1])
+        const isFirstWarmup = isWarmupRow(s) && !warmBefore
         // Numbering restarts per phase: with two warm-ups the first work set reads 1, not 3.
-        const phaseNum = entry.sets.slice(0, i + 1).filter(x => (x.warmup === true) === (s.warmup === true)).length
+        const phaseNum = entry.sets.slice(0, i + 1).filter(x => isWarmupRow(x) === isWarmupRow(s)).length
         return <div key={i}>
           {isFirstWarmup && <div className="setph">{t('Warm-up')}</div>}
-          {!s.warmup && warmBefore && <div className="setsep" />}
+          {!isWarmupRow(s) && warmBefore && <div className="setsep" />}
           <div className={'setrow' + (s.done ? ' done' : '') + (col3 ? ' eff3' : '')}>
             <div className="n">{phaseNum}</div>
             {cell(s, i, col1, 'w')}
@@ -162,7 +166,7 @@ function ExerciseBlock({ entryIdx, compact, onToggle, onField, onAddSet, onRemov
                 set off itself. The checkbox stays for anyone who timed it on their own watch. */}
             {timed && <button className="setgo" aria-label={t('Start set')} disabled={s.done || !!working}
               onClick={() => onStartTimed(i)}><Icon name="play" /></button>}
-            {s.warmup && <button className="iconbtn" style={{ fontSize: 13 }} aria-label={t('Remove set')}
+            {isWarmupRow(s) && <button className="iconbtn" style={{ fontSize: 13 }} aria-label={t('Remove set')}
               disabled={entry.sets.length <= 1} onClick={() => onRemoveSetAt(i)}><Icon name="xmark" /></button>}
             <Check checked={s.done} onChange={() => onToggle(i)} />
           </div>

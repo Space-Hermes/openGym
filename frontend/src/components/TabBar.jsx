@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
-import { effectiveRoutines } from '../lib/history.js'
+import { effectiveRoutines, completedRoutineIdsForDate, reconcileStartSessionChoice } from '../lib/history.js'
 import { todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import { startSessionSheet } from '../sheets.jsx'
@@ -15,12 +15,14 @@ export default function TabBar({ onStart }) {
   if (!user && !isGuest) return null
   const cur = loc.pathname.split('/')[1] || 'home'
   const on = k => cur === k || (cur === 'history' && k === 'stats') || (cur === 'settings' && k === 'home')
+  const todayPlans = effectiveRoutines(S, todayISO())
+  const doneToday = completedRoutineIdsForDate(S, todayISO())
+  const openRoutineId = reconcileStartSessionChoice(todayPlans, doneToday, null)
 
   const startWorkout = () => {
     if (!S.active) {
-      const plans = effectiveRoutines(S, todayISO())
-      if (plans.length === 1 && plans[0].ex.length) { onStart(plans[0].id); return }
-      if (plans.length > 1) { startSessionSheet(); return }
+      if (todayPlans.length === 1 && openRoutineId && todayPlans[0].ex.length) { onStart(openRoutineId); return }
+      if (todayPlans.length > 1 || (todayPlans.length === 1 && !openRoutineId)) { startSessionSheet(); return }
     }
     nav('/workout')
   }
@@ -36,7 +38,7 @@ export default function TabBar({ onStart }) {
       <Tab k="plan" icon="calendar" to="/plan" label={t('Plan')} />
       <button className={'start' + (S.active ? ' rec' : '')} onClick={startWorkout}>
         <span className="cir"><Icon name={S.active ? 'play' : 'dumbbell'} /></span>
-        <span>{S.active ? t('Resume') : t('Start')}</span>
+        <span>{S.active ? t('Resume') : todayPlans.length && !openRoutineId ? t('Done') : t('Start')}</span>
       </button>
       <Tab k="stats" icon="chart" to="/stats" label={t('Stats')} />
       <Tab k="library" icon="list" to="/library" label={t('Exercises')} />

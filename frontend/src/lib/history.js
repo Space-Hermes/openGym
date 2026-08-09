@@ -22,6 +22,12 @@ export function modeOf(cfg) {
 }
 export const isTimed = cfg => modeOf(cfg) === 'time'
 
+// Warm-up markers exist in both the legacy boolean shape and the newer explicit phase shape.
+// Keep the boundary here so history, statistics, import, and UI callers cannot disagree about
+// whether a completed row is working data. Unannotated rows remain work rows for compatibility.
+export const isWarmupRow = row => row?.warmup === true || row?.phase === 'warmup'
+export const isWorkRow = row => !isWarmupRow(row)
+
 // Two flags that ride on top of a mode rather than making new ones (issues #31/#32), because
 // "bodyweight" and "per side" are true of a rep set and of a timed hold alike:
 //   bodyweight — the exercise carries no load of its own, so `w` means *added* weight and is
@@ -147,8 +153,10 @@ export function lastEntryFor(S, exId) {
     const en = S.workouts[i].entries.find(e => e.id === exId)
     // `target` is what the session prescribed; finished workouts carry it so labels and the
     // progression engine can read a session back the way it was logged. Older workouts have
-    // none — modeOf() falls back to the body part for them, which is what they were.
-    if (en && en.sets.some(s => s.done)) return { d: S.workouts[i].d, sets: en.sets.filter(s => s.done), target: en.target || null }
+    // none — modeOf() falls back to the body part for them, which is what they were. Warm-ups
+    // are deliberately excluded: they must not seed a later working prescription.
+    const sets = en?.sets?.filter(s => s.done && isWorkRow(s)) || []
+    if (sets.length) return { d: S.workouts[i].d, sets, target: en.target || null }
   }
   return null
 }
@@ -171,8 +179,23 @@ export function bestWeightFor(S, exId) {
   let best = 0
   S.workouts.forEach(w => w.entries.forEach(e => {
     if (e.id === exId) {
-      e.sets.forEach(s => { if (s.done && s.w > best) best = s.w })
-      if (e.topW && e.topW > best) best = e.topW
+      const modeForSet = s => modeOf({ ...(e.target || {}), ...s, id: e.id })
+      let hasRepsWork = false
+      let hasNonRepsWork = false
+      e.sets.forEach(s => {
+        if (!s.done || !isWorkRow(s)) return
+        if (modeForSet(s) !== 'reps') {
+          hasNonRepsWork = true
+          return
+        }
+        hasRepsWork = true
+        if (s.w > best) best = s.w
+      })
+      // topW has no row mode of its own. It is authoritative only when a completed reps row
+      // proves that the entry was a working-weight prescription. Mixed-mode entries and targets
+      // that are explicitly timed/cardio fail closed; do not infer reps from shape.
+      const parentMode = modeOf({ ...(e.target || {}), id: e.id })
+      if (hasRepsWork && !hasNonRepsWork && parentMode === 'reps' && e.topW > best) best = e.topW
     }
   }))
   return best
@@ -181,12 +204,12 @@ export function bestWeightFor(S, exId) {
 // list, but every load path runs this copy-on-read normalizer so old backups and server state
 // become the new shape without changing callers that still hold an old object.
 export function normalizeDayPlan(S) {
-  if (!S || !S.dayPlan || typeof S.dayPlan !== 'object' || Array.isArray(S.dayPlan)) return S
-  const dayPlan = {}
-  Object.entries(S.dayPlan).forEach(([iso, value]) => {
-    dayPlan[iso] = Array.isArray(value) ? value.slice() : [value]
-  })
-  return { ...S, dayPlan }
+  const source = S && typeof S === 'object' && !Array.isArray(S) ? S : {}
+  const raw = source.dayPlan
+  const dayPlan = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? Object.fromEntries(Object.entries(raw).map(([iso, value]) => [iso, Array.isArray(value) ? value.slice() : [value]]))
+    : {}
+  return { ...source, dayPlan }
 }
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key)
@@ -226,6 +249,27 @@ export function effectiveRoutines(S, iso) {
 export function effectiveRoutine(S, iso) {
   return effectiveRoutines(S, iso)[0] || null
 }
+
+// A planned session is complete for a local calendar date as soon as a workout carrying its
+// routine id is recorded on that date. Keep this date/routine contract in one place so every
+// start surface agrees about whether its fast-path is still safe.
+export function completedRoutineIdsForDate(S, iso) {
+  const done = new Set()
+  ;(S?.workouts || []).forEach(w => {
+    if (String(w?.d || '').slice(0, 10) === iso && w?.routineId) done.add(w.routineId)
+  })
+  return done
+}
+
+// Return the selected routine only while it remains open; stale selections fall forward to the
+// first uncompleted plan. A null result means the caller must show an explicit choose-another or
+// freestyle path rather than silently starting a completed plan.
+export function reconcileStartSessionChoice(todayPlans, doneToday, chosen) {
+  const selectedIsOpen = chosen && todayPlans.some(r => r.id === chosen && !doneToday.has(r.id))
+  if (selectedIsOpen) return chosen
+  return todayPlans.find(r => !doneToday.has(r.id))?.id || null
+}
+
 export function buildSets(S, cfg, options = {}) {
   const last = lastEntryFor(S, cfg.id)
   const n = Math.max(1, cfg.sets || 1)
@@ -267,7 +311,7 @@ export function workoutVolume(w) {
   let v = 0
   // No special case for unilateral work: a per-side set logs its total, so both sides are
   // already in the rep count that arrives here.
-  w.entries.forEach(e => e.sets.forEach(s => { if (s.done) v += (s.w || 0) * (s.r || 0) }))
+  w.entries.forEach(e => e.sets.forEach(s => { if (s.done && isWorkRow(s)) v += (s.w || 0) * (s.r || 0) }))
   return v
 }
 export function setsDone(w) {
@@ -310,14 +354,14 @@ export function streakWeeks(S) {
 }
 
 /**
- * Cascade a weight change forward: following sets of the same warm-up flag that are still
+ * Cascade a weight change forward: following sets in the same canonical phase that are still
  * undone take the new value (null deletes the key). Done sets are never rewritten.
  */
 export function cascadeWeight(rows, from, value) {
-  const warm = !!rows[from]?.warmup
+  const warm = isWarmupRow(rows[from])
   const next = rows.slice()
   for (let j = from + 1; j < next.length; j++) {
-    if (!!next[j].warmup === warm && !next[j].done) {
+    if (isWarmupRow(next[j]) === warm && !next[j].done) {
       if (value == null) delete next[j].w
       else next[j].w = value
     }
@@ -327,7 +371,7 @@ export function cascadeWeight(rows, from, value) {
 
 /** Insert a warm-up row before the first work row, copying the preceding warm-up's values. */
 export function insertWarmupRow(rows, mode, target) {
-  const firstWork = rows.findIndex(x => !x.warmup)
+  const firstWork = rows.findIndex(isWorkRow)
   const at = firstWork === -1 ? rows.length : firstWork
   const l = rows[at - 1] || rows[rows.length - 1]
   const warm = mode === 'cardio'
@@ -351,6 +395,6 @@ export function removeRowAt(rows, i) {
 /** Completed non-warm-up sets across a workout's entries. */
 export function workSetsDone(w) {
   return (w?.entries || []).reduce(
-    (n, e) => n + (e.sets || []).filter(s => s.done && !s.warmup).length, 0,
+    (n, e) => n + (e.sets || []).filter(s => s.done && isWorkRow(s)).length, 0,
   )
 }

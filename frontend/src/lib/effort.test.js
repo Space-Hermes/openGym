@@ -173,3 +173,13 @@ describe('isHardSet', () => {
     expect(isHardSet({})).toBe(false)          // unrated is not hard, and not easy either
   })
 })
+
+describe('coverage with warm-up phases', () => {
+  it.each([
+    ['legacy boolean', { phase: 'work', warmup: true }],
+    ['explicit phase', { phase: 'warmup' }]
+  ])('excludes five completed %s warm-ups from effort aggregation', (_label, marker) => {
+    const r = effortSummary(S(W(2, Array.from({ length: 5 }, (_, i) => ({ ...marker, rir: i })))), 0)
+    expect(r).toEqual({ done: 0, rated: 0, hard: 0, avg: null, hardPct: null })
+  })
+})

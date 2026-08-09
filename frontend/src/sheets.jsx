@@ -3,7 +3,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf } from './lib/exercises.js'
 import { fmtDate, fmtNum, fmtVol, fmtDur, durPart, todayISO, uid, exCount, DAYN, MONTHS_LONG, ACCENTS } from './lib/format.js'
-import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, effectiveRoutineIds, effectiveRoutines, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone } from './lib/history.js'
+import { lastEntryFor, bestWeightFor, buildSets, effectiveRoutineId, effectiveRoutineIds, effectiveRoutines, completedRoutineIdsForDate, reconcileStartSessionChoice, workoutVolume, setsDone, setsDoneActive, lastBW, supersetUnits, unitOf, setLabel, defaultConfig, cleanupSg, modeOf, effortOf, isBw, isPerSide, sideReps, workSetsDone, isWorkRow } from './lib/history.js'
 import { beep, vibrate } from './lib/sound.js'
 import { t, instrFor, getLang, INSTR_LANGS } from './lib/i18n.js'
 import { nav } from './lib/nav.js'
@@ -724,7 +724,7 @@ function DayOverride({ iso, close }) {
   return <>
     <h3>{fmtDate(iso, true)}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Weekly plan:')} {weeklyR ? weeklyR.name : t('Rest')}{hasOvr && <span style={{ color: 'var(--orange)' }}> · {t('changed for this day')}</span>}<br />{t('Pick one or more routines for this date. Tap a selected routine to remove it.')}</div>
-    <Button size="sm" variant="tinted" icon="calendar" style={{ marginBottom: 10 }} onClick={() => dayAssignSheet(wd)}>{t('Change the weekly plan for {0}', t(DAYN[wd]))}</Button>
+    <Button size="sm" variant="tinted" icon="calendar" style={{ marginBottom: 10 }} onClick={() => { close(); dayAssignSheet(wd) }}>{t('Change the weekly plan for {0}', t(DAYN[wd]))}</Button>
     <div className="list">
       {st.routines.map(r => <div key={r.id} className="item" onClick={() => toggle(r.id)}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -838,17 +838,20 @@ export function WorkoutRow({ w, onClick }) {
 // Session picker for days with multiple planned sessions (owner flow: small planner-style
 // buttons side by side, first uncompleted auto-selected, completed sessions ticked + greyed).
 // A sheet on purpose: swipe down to dismiss.
-function StartSessions({ close }) {
+export { reconcileStartSessionChoice }
+
+export function StartSessions({ close }) {
   const S = useStore(s => s.S)
   const todayPlans = effectiveRoutines(S, todayISO())
   const iso = todayISO()
-  const doneToday = new Set()
-  ;(S.workouts || []).forEach(w => { if (String(w.d || '').slice(0, 10) === iso && w.routineId) doneToday.add(w.routineId) })
-  const [chosen, setChosen] = useState(() => {
-    const firstOpen = todayPlans.find(r => !doneToday.has(r.id))
-    return firstOpen ? firstOpen.id : (todayPlans.length ? todayPlans[0].id : null)
-  })
-  const selected = todayPlans.find(r => r.id === chosen) || null
+  const doneToday = completedRoutineIdsForDate(S, iso)
+  const planKey = todayPlans.map(r => r.id).join('\u0000')
+  const doneKey = [...doneToday].sort().join('\u0000')
+  const [chosen, setChosen] = useState(() => reconcileStartSessionChoice(todayPlans, doneToday, null))
+  useEffect(() => {
+    setChosen(current => reconcileStartSessionChoice(todayPlans, doneToday, current))
+  }, [planKey, doneKey])
+  const selected = todayPlans.find(r => r.id === chosen && !doneToday.has(r.id)) || null
   const others = S.routines.filter(r => !todayPlans.some(p => p.id === r.id))
   const go = id => { close(); startFlow(id) }
   return <>
@@ -866,7 +869,7 @@ function StartSessions({ close }) {
     </div>
     {selected
       ? <Button variant="primary" icon="play" style={{ width: '100%' }} onClick={() => go(selected.id)}>{t('Start {0}', selected.name)}</Button>
-      : <div className="muted small" style={{ marginBottom: 10 }}>{t('Every planned session is done today \u2014 pick another routine or go freestyle.')}</div>}
+      : <div className="muted small" style={{ marginBottom: 10 }}>{t('Every planned session is done today — pick another routine or go freestyle.')}</div>}
     {others.length > 0 && <>
       <h4 className="sec">{t('Other routines')}</h4>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -911,7 +914,7 @@ function TopWeight({ entryIdx, close }) {
   // to sit after every one of them.
   const entry = A ? A.entries[entryIdx] : null
   const ex = entry && EXIDX[entry.id]
-  const maxSet = entry ? Math.max(0, ...entry.sets.filter(s => s.done).map(s => s.w || 0)) : 0
+  const maxSet = entry ? Math.max(0, ...entry.sets.filter(s => s.done && isWorkRow(s)).map(s => s.w || 0)) : 0
   const prevBest = entry ? Math.max((st.exWeights[entry.id] || {}).w || 0, bestWeightFor(st, entry.id)) : 0
   const [v, setV] = useState(entry ? (Math.max(maxSet, prevBest) || entry.target.weight || 0) : 0)
   useEffect(() => { if (!entry) close() }, [!entry])
@@ -1001,7 +1004,7 @@ function doFinishWorkout() {
   const prs = []
   const e1prs = []
   A.entries.forEach(e => {
-    const mx = Math.max(0, ...e.sets.filter(s => s.done).map(s => s.w))
+    const mx = Math.max(0, ...e.sets.filter(s => s.done && isWorkRow(s)).map(s => s.w))
     if (mx > 0 && mx > bestWeightFor(st, e.id)) prs.push(e.id)
     // A heavier estimate without a heavier top set is its own kind of progress —
     // same weight for more reps. Reported separately so it can't be read as a load PR.
@@ -1019,7 +1022,7 @@ function doFinishWorkout() {
   w.vol = workoutVolume(w)
   update(s => {
     w.entries.forEach(e => {
-      const mx = Math.max(0, ...e.sets.filter(x => x.done).map(x => x.w || 0), e.topW || 0)
+      const mx = Math.max(0, ...e.sets.filter(x => x.done && isWorkRow(x)).map(x => x.w || 0), e.topW || 0)
       if (mx > 0) { const cur = s.exWeights[e.id]; if (!cur || mx > cur.w) s.exWeights[e.id] = { w: mx, d: w.d } }
     })
     s.workouts.push(w)

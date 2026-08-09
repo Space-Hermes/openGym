@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, effectiveRoutineIds, effectiveRoutineId, normalizeDayPlan } from './history.js'
+import { modeOf, isTimed, fmtSec, setLabel, defaultConfig, buildSets, freestyleConfig, exLine, workoutVolume, effortOf, stepEffort, capEffort, isBw, isPerSide, sideReps, repStep, cascadeWeight, insertWarmupRow, removeRowAt, effectiveRoutineIds, effectiveRoutineId, normalizeDayPlan, lastEntryFor, bestWeightFor, workSetsDone, isWarmupRow, isWorkRow, completedRoutineIdsForDate, reconcileStartSessionChoice } from './history.js'
 import { EXDB } from './exercises.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
@@ -336,6 +336,84 @@ describe('exLine', () => {
 
 const emptyS = { workouts: [], exWeights: {} }
 
+describe('history builders share the non-warm-up work boundary', () => {
+  const makeState = warmup => ({ unit: 'kg', exWeights: {}, workouts: [{
+    d: '2026-03-01', unit: 'kg', entries: [{
+      id: LIFT, unit: 'kg', target: { mode: 'reps', sets: 2, reps: 5, weight: 60, unit: 'kg' },
+      sets: [
+        { unit: 'kg', w: 20, r: 8, mode: 'reps', done: true, ...warmup },
+        { unit: 'kg', w: 60, r: 5, mode: 'reps', done: true },
+        { unit: 'kg', w: 60, r: 5, mode: 'reps', done: true }
+      ]
+    }]
+  }] })
+
+  it.each([
+    ['legacy boolean', { warmup: true }],
+    ['explicit phase', { phase: 'warmup' }]
+  ])('excludes the %s warm-up from lastEntryFor, buildSets, and freestyleConfig', (_label, warmup) => {
+    const S = makeState(warmup)
+    expect(lastEntryFor(S, LIFT, 'reps').sets.map(set => set.w)).toEqual([60, 60])
+    expect(buildSets(S, { id: LIFT, mode: 'reps', sets: 2, reps: 5, weight: 0 }))
+      .toEqual([{ w: 60, r: 5, done: false }, { w: 60, r: 5, done: false }])
+    expect(freestyleConfig(S, { id: LIFT, mode: 'reps', sets: 1, reps: 3, weight: 0 }))
+      .toMatchObject({ sets: 2, reps: 5, weight: 60 })
+  })
+
+  it('does not treat a warm-up-only history row as a completed work session', () => {
+    for (const warmup of [{ warmup: true }, { phase: 'warmup' }]) {
+      const S = { unit: 'kg', exWeights: {}, workouts: [{
+        d: '2026-03-02', unit: 'kg', entries: [{ id: LIFT, unit: 'kg', target: { mode: 'reps', sets: 1, reps: 5, weight: 50, unit: 'kg' }, sets: [
+          { unit: 'kg', w: 20, r: 8, mode: 'reps', done: true, ...warmup }
+        ] }]
+      }] }
+      expect(lastEntryFor(S, LIFT, 'reps')).toBeNull()
+      expect(freestyleConfig(S, { id: LIFT, mode: 'reps', sets: 1, reps: 5, weight: 50 }))
+        .toMatchObject({ sets: 1, reps: 5, weight: 50 })
+    }
+  })
+})
+
+describe('workSetsDone shares the non-warm-up work boundary', () => {
+  it.each([
+    ['legacy boolean', { phase: 'work', warmup: true }],
+    ['explicit phase', { phase: 'warmup' }]
+  ])('excludes a completed %s warm-up', (_label, marker) => {
+    const workout = { entries: [{ sets: [
+      { ...marker, done: true },
+      { phase: 'work', done: true }
+    ] }] }
+    expect(workSetsDone(workout)).toBe(1)
+  })
+})
+
+describe('bestWeightFor preserves explicit row modes', () => {
+  it('rejects an unannotated rep-shaped row under a timed target', () => {
+    const S = { workouts: [{ entries: [{ id: LIFT, target: { mode: 'time' }, topW: 200, sets: [{ w: 100, r: 5, done: true }] }] }] }
+    expect(bestWeightFor(S, LIFT)).toBe(0)
+  })
+
+  it('accepts an authoritative completed reps row under a timed target', () => {
+    const S = { workouts: [{ entries: [{ id: LIFT, target: { mode: 'time' }, topW: 200, sets: [{ mode: 'reps', w: 100, r: 5, done: true }] }] }] }
+    expect(bestWeightFor(S, LIFT)).toBe(100)
+  })
+})
+
+describe('cascadeWeight shares the canonical warm-up boundary', () => {
+  it.each([
+    ['legacy boolean', { phase: 'work', warmup: true }],
+    ['explicit phase', { phase: 'warmup' }]
+  ])('does not cascade a warm-up change into work rows for %s rows', (_label, marker) => {
+    const rows = [
+      { ...marker, w: 20, done: false },
+      { ...marker, w: 22, done: false },
+      { phase: 'work', w: 60, done: false },
+      { phase: 'work', w: 70, done: true }
+    ]
+    expect(cascadeWeight(rows, 0, 30).map(row => row.w)).toEqual([20, 30, 60, 70])
+  })
+})
+
 describe('freestyleConfig', () => {
   it('inherits the last target and completed set count for a newly added exercise', () => {
     const S = {
@@ -573,6 +651,21 @@ describe('multiple plans per day', () => {
   it('falls back to the weekly plan when there is no date override', () => {
     const state = { routines, week: { 1: 'weekly' }, dayPlan: {} }
     expect(effectiveRoutineIds(state, monday)).toEqual(['weekly'])
+  })
 
+  it('deduplicates completed routine ids by the local workout date', () => {
+    const S = { workouts: [
+      { d: '2026-01-05T08:00:00.000Z', routineId: 'morning' },
+      { d: '2026-01-05', routineId: 'morning' },
+      { d: '2026-01-04T23:59:59.000Z', routineId: 'evening' },
+      { d: '2026-01-05', routineId: null }
+    ] }
+    expect(completedRoutineIdsForDate(S, monday)).toEqual(new Set(['morning']))
+  })
+
+  it('reconciles a stale selection to the first open plan and fails closed when all are done', () => {
+    expect(reconcileStartSessionChoice(routines.slice(0, 2), new Set(), null)).toBe('morning')
+    expect(reconcileStartSessionChoice(routines.slice(0, 2), new Set(['morning']), 'morning')).toBe('evening')
+    expect(reconcileStartSessionChoice(routines.slice(0, 2), new Set(['morning', 'evening']), 'evening')).toBeNull()
   })
 })

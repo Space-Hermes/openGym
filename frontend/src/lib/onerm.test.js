@@ -77,6 +77,13 @@ describe('bestSetOf', () => {
     expect(bestSetOf(entry).w).toBe(100)
   })
 
+  it.each([
+    ['legacy boolean', { warmup: true }],
+    ['explicit phase', { phase: 'warmup' }]
+  ])('ignores completed %s rows', (_label, marker) => {
+    expect(bestSetOf({ id: 'x', sets: [{ ...marker, w: 200, r: 5, done: true }] })).toBeNull()
+  })
+
   it('ignores topW, which carries no rep count', () => {
     const entry = { id: 'x', topW: 200, sets: [{ w: 100, r: 5, done: true }] }
     expect(bestSetOf(entry).est).toBe(116.7)
@@ -86,6 +93,14 @@ describe('bestSetOf', () => {
     expect(bestSetOf({ id: 'c', sets: [{ min: 20, speed: 9, done: true }] })).toBeNull()
     expect(bestSetOf({ id: 'p', sets: [{ sec: 60, w: 0, done: true }] })).toBeNull()
     expect(bestSetOf({ id: 'p', sets: [{ sec: 60, w: 20, done: true }] })).toBeNull()
+  })
+
+  it('fails closed for target/row mixed modes', () => {
+    expect(bestSetOf({ id: 'x', target: { mode: 'time' }, sets: [{ mode: 'reps', w: 100, r: 5, done: true }] })).toBeNull()
+    expect(bestSetOf({ id: 'x', target: { mode: 'reps' }, sets: [
+      { mode: 'reps', w: 100, r: 5, done: true },
+      { mode: 'time', w: 100, sec: 60, done: true }
+    ] })).toBeNull()
   })
 
   it('survives a missing or empty entry', () => {
