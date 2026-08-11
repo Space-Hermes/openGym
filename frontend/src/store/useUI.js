@@ -141,8 +141,14 @@ export const useUI = create((set, get) => ({
         beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
         vibrate([200, 100, 200])
         const done = workDone
-        get().stopWork()
+        if (workInt) clearInterval(workInt); workInt = null
+        if (workTick) document.removeEventListener('visibilitychange', workTick); workTick = null
         if (done) done(wk.total)
+        // Stay visible as a "Time's up!" state (same as the rest timer): the popup only
+        // closes on Dismiss or when more hold time is started. The onDone callback (set
+        // completion) runs stopTimers, so the done state is (re)set AFTER it - the set
+        // gets logged while the popup remains.
+        set({ work: { ...wk, left: 0, done: true, _done: done } })
         return
       }
       if (left <= 3) beep(snd, 660, 0.1)
@@ -155,6 +161,16 @@ export const useUI = create((set, get) => ({
   // completion callback, so the total held time keeps logging honestly.
   workMore(sec) {
     const done = workDone
+    const label = get().work?.label || ''
+    if (!done && !get().work?.done) return
+    get().startWork(sec > 0 ? sec : 15, label, done, 0)
+  },
+  // Extend a finished hold: re-launch the work timer for `sec` more with the same
+  // completion callback, so the total held time keeps logging honestly.
+  workMore(sec) {
+    // The done-state carries the original completion callback (_done) so an extended
+    // hold still logs through the same path as a normal one.
+    const done = get().work?._done || workDone
     const label = get().work?.label || ''
     if (!done && !get().work?.done) return
     get().startWork(sec > 0 ? sec : 15, label, done, 0)
