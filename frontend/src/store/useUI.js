@@ -153,14 +153,6 @@ export const useUI = create((set, get) => ({
     workInt = setInterval(workTick, 1000)
     document.addEventListener('visibilitychange', workTick)
   },
-  // Extend a finished hold: re-launch the work timer for `sec` more with the same
-  // completion callback, so the total held time keeps logging honestly.
-  workMore(sec) {
-    const done = workDone
-    const label = get().work?.label || ''
-    if (!done && !get().work?.done) return
-    get().startWork(sec > 0 ? sec : 15, label, done, 0)
-  },
   // The hold ran past the planned time ("Time's up!"): the user chooses what to log.
   // With the extra time -> planned + overtime; without -> just the planned time.
   logWorkWithExtra() {
