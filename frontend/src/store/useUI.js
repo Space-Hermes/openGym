@@ -134,24 +134,20 @@ export const useUI = create((set, get) => ({
     workTick = () => {
       const wk = get().work
       if (!wk) return
-      const left = Math.max(0, Math.round((wk.endsAt - Date.now()) / 1000))
+      // No clamp: past zero the count keeps going (negative = overtime held).
+      const left = Math.round((wk.endsAt - Date.now()) / 1000)
       if (left === wk.left) return
       const snd = useStore.getState().S.sound
-      if (left <= 0) {
+      if (left <= 0 && !wk.done) {
         beep(snd, 880, 0.15); beep(snd, 880, 0.15, 0.25); beep(snd, 1320, 0.4, 0.5)
         vibrate([200, 100, 200])
-        const done = workDone
-        if (workInt) clearInterval(workInt); workInt = null
-        if (workTick) document.removeEventListener('visibilitychange', workTick); workTick = null
-        if (done) done(wk.total)
-        // Stay visible as a "Time's up!" state (same as the rest timer): the popup only
-        // closes on Dismiss or when more hold time is started. The onDone callback (set
-        // completion) runs stopTimers, so the done state is (re)set AFTER it - the set
-        // gets logged while the popup remains.
-        set({ work: { ...wk, left: 0, done: true, _done: done } })
+        // Time's up but the clock KEEPS COUNTING (overtime). Nothing is logged yet:
+        // the user picks "log with extra" or "log planned" from the popup, which lets
+        // them push beyond the planned hold and still log it in one tap.
+        set({ work: { ...wk, left, done: true } })
         return
       }
-      if (left <= 3) beep(snd, 660, 0.1)
+      if (left <= 3 && left > 0) beep(snd, 660, 0.1)
       set({ work: { ...wk, left } })
     }
     workInt = setInterval(workTick, 1000)
@@ -165,15 +161,24 @@ export const useUI = create((set, get) => ({
     if (!done && !get().work?.done) return
     get().startWork(sec > 0 ? sec : 15, label, done, 0)
   },
-  // Extend a finished hold: re-launch the work timer for `sec` more with the same
-  // completion callback, so the total held time keeps logging honestly.
-  workMore(sec) {
-    // The done-state carries the original completion callback (_done) so an extended
-    // hold still logs through the same path as a normal one.
-    const done = get().work?._done || workDone
-    const label = get().work?.label || ''
-    if (!done && !get().work?.done) return
-    get().startWork(sec > 0 ? sec : 15, label, done, 0)
+  // The hold ran past the planned time ("Time's up!"): the user chooses what to log.
+  // With the extra time -> planned + overtime; without -> just the planned time.
+  logWorkWithExtra() {
+    const wk = get().work
+    if (!wk?.done) return
+    const extra = Math.max(0, -wk.left)
+    const held = Math.max(1, Math.round(wk.total + extra))
+    const done = workDone
+    get().stopWork()
+    if (done) done(held)
+  },
+  logWorkPlanned() {
+    const wk = get().work
+    if (!wk?.done) return
+    const held = Math.max(1, Math.round(wk.total))
+    const done = workDone
+    get().stopWork()
+    if (done) done(held)
   },
   // Ended the hold early — log what was actually held.
   finishWorkEarly() {

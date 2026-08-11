@@ -12,7 +12,7 @@ const clock = sec => Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '
 export default function RestTimer() {
   const timer = useUI(s => s.timer)
   const work = useUI(s => s.work)
-  const { addRest, stopRest, finishWorkEarly, stopWork } = useUI()
+  const { addRest, stopRest, finishWorkEarly, stopWork, logWorkWithExtra, logWorkPlanned } = useUI()
   const on = work || timer
   // The bar is fixed above the tab bar and floats over whatever is beneath it — during a
   // rest that was the next set's row. Extra bottom padding lets the page scroll clear.
@@ -26,13 +26,13 @@ export default function RestTimer() {
   if (work?.done) return (
     <div id="timer" className="working ready" role="status" aria-live="polite" aria-atomic="true">
       <div className="head">
-        <div className="t">{t('Time\'s up!')}</div>
+        <div className="t">{t('Time\'s up!')}{work.left < 0 ? ' +' + clock(-work.left) : ''}</div>
         {work.label && <div className="lbl">{work.label}</div>}
         <div className="bar"><i style={{ width: '100%' }} /></div>
       </div>
       <div className="acts">
-        <Button size="sm" icon="plus" onClick={() => workMore(15)}>15s</Button>
-        <Button size="sm" variant="primary" className="skip" onClick={stopWork}>{t('Dismiss')}</Button>
+        <Button size="sm" variant="primary" onClick={logWorkWithExtra}>{work.left < 0 ? t('Log +{0}s', -work.left) : t('Log {0}s', work.total)}</Button>
+        <Button size="sm" onClick={logWorkPlanned}>{t('Keep {0}s', work.total)}</Button>
       </div>
     </div>
   )
