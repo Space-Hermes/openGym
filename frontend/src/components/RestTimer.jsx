@@ -23,6 +23,19 @@ export default function RestTimer() {
   if (!on) return null
   const pct = (on.left / on.total) * 100
 
+  if (work?.done) return (
+    <div id="timer" className="working ready" role="status" aria-live="polite" aria-atomic="true">
+      <div className="head">
+        <div className="t">{t('Time\'s up!')}</div>
+        {work.label && <div className="lbl">{work.label}</div>}
+        <div className="bar"><i style={{ width: '100%' }} /></div>
+      </div>
+      <div className="acts">
+        <Button size="sm" icon="plus" onClick={() => workMore(15)}>15s</Button>
+        <Button size="sm" variant="primary" className="skip" onClick={stopWork}>{t('Dismiss')}</Button>
+      </div>
+    </div>
+  )
   if (work) return (
     <div id="timer" className="working">
       <div className="t">{clock(work.left)}</div>
