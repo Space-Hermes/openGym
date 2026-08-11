@@ -627,11 +627,13 @@ h4.sec{
 /* rest variant: −15/+15/Skip and the clock won't share one line on a phone, so the clock and
    bar take the top row and the controls take their own. The work timer keeps a single row —
    it only ever has two buttons. */
-#timer.rest{flex-direction:column;align-items:stretch;gap:10px}
-#timer.rest .head{display:flex;align-items:center;gap:12px}
-#timer.rest .acts{display:flex;align-items:center;gap:8px}
-#timer.rest .acts .btn{padding-top:11px;padding-bottom:11px}   /* sweaty hands, mid-set */
-#timer.rest .acts .skip{margin-left:auto;min-width:84px}
+#timer.rest,#timer.ready{flex-direction:column;align-items:stretch;gap:10px}
+#timer.rest .head,#timer.ready .head{display:flex;align-items:center;gap:12px}
+#timer.rest .acts,#timer.ready .acts{display:flex;align-items:center;gap:8px}
+#timer.rest .acts .btn,#timer.ready .acts .btn{padding-top:11px;padding-bottom:11px}   /* sweaty hands, mid-set */
+#timer.rest .acts .skip,#timer.ready .acts .skip{margin-left:auto;min-width:84px}
+/* Finished states (Ready! / Time's up!): the two actions share the row evenly. */
+#timer.ready .acts .btn{flex:1;justify-content:center}
 /* work timer (issue #16): the same bar doing the opposite job — outlined and tinted so a
    glance tells "you are holding this" apart from "you are recovering". */
 #timer.working{border:var(--hair) solid var(--acc)}

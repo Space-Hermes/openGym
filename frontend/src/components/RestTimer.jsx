@@ -32,7 +32,7 @@ export default function RestTimer() {
       </div>
       <div className="acts">
         <Button size="sm" variant="primary" onClick={logWorkWithExtra}>{work.left < 0 ? t('Log +{0}s', -work.left) : t('Log {0}s', work.total)}</Button>
-        <Button size="sm" onClick={logWorkPlanned}>{t('Keep {0}s', work.total)}</Button>
+        <Button size="sm" variant="tinted" onClick={logWorkPlanned}>{t('Keep {0}s', work.total)}</Button>
       </div>
     </div>
   )
@@ -54,7 +54,7 @@ export default function RestTimer() {
         <div className="bar"><i style={{ width: '100%' }} /></div>
       </div>
       <div className="acts">
-        <Button size="sm" icon="plus" onClick={() => addRest(15)}>15s</Button>
+        <Button size="sm" variant="tinted" icon="plus" onClick={() => addRest(15)}>15s</Button>
         <Button size="sm" variant="primary" className="skip" onClick={stopRest}>{t('Dismiss')}</Button>
       </div>
     </div>
