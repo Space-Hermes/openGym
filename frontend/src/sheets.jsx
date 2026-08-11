@@ -834,6 +834,8 @@ export function beginWorkout(routineId, bw) {
     return { id: cfg.id, sg: cfg.sg, target: { ...cfg }, plan, sets: applyPrescription(buildSets(st, cfg), plan) }
   })
   update(s => {
+    s.lastFinishedSession = null
+    s.lastFinishedUndo = null
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
   })
   useUI.getState().stopRest()
@@ -901,6 +903,50 @@ function WorkoutComplete({ close }) {
   </div>
 }
 export const workoutCompleteSheet = () => ui().openSheet(close => <WorkoutComplete close={close} />, { kind: 'center' })
+function rollbackFinishedSideEffects(state, undo) {
+  if (!undo) return
+  const workouts = Array.isArray(state.workouts) ? state.workouts : (state.workouts = [])
+  if (undo.replacedWorkout) {
+    const currentIndex = workouts.findIndex(workout => (
+      (undo.instanceId && workout.instanceId === undo.instanceId)
+      || (workout.id === undo.workoutId && workout.end === undo.workoutEnd)
+    ))
+    if (currentIndex >= 0) workouts[currentIndex] = cloneJson(undo.replacedWorkout)
+    else {
+      const index = Math.max(0, Math.min(undo.replacedIndex, workouts.length))
+      workouts.splice(index, 0, cloneJson(undo.replacedWorkout))
+    }
+  } else {
+    const currentIndex = workouts.findIndex(workout => workout.id === undo.workoutId && workout.end === undo.workoutEnd)
+    if (currentIndex >= 0) workouts.splice(currentIndex, 1)
+  }
+  const previousExWeights = undo.previousExWeights || {}
+  state.exWeights = state.exWeights && typeof state.exWeights === 'object' ? state.exWeights : {}
+  Object.entries(previousExWeights).forEach(([id, previous]) => {
+    if (previous?.present) state.exWeights[id] = cloneJson(previous.value)
+    else delete state.exWeights[id]
+  })
+  if (Object.prototype.hasOwnProperty.call(undo, 'programmesBefore')) state.programmes = cloneJson(undo.programmesBefore)
+}
+
+export function undoFinish() {
+  const snapshot = S().lastFinishedSession
+  if (!snapshot || S().active) return false
+  useUI.getState().closeAll()
+  let restored = false
+  update(s => {
+    if (!s.lastFinishedSession || s.active) return
+    rollbackFinishedSideEffects(s, s.lastFinishedUndo)
+    s.active = cloneJson(s.lastFinishedSession)
+    s.lastFinishedSession = null
+    s.lastFinishedUndo = null
+    restored = true
+  })
+  if (!restored) return false
+  nav('/workout')
+  return true
+}
+
 
 function FinishSummary({ w, prs, e1prs = [], close }) {
   const st = useStore(s => s.S)
@@ -921,6 +967,8 @@ function FinishSummary({ w, prs, e1prs = [], close }) {
     <BodyMap load={loadOfWorkouts([w])} body={st.body} />
     <div style={{ height: 14 }} />
     <Button variant="primary" onClick={() => { close(); nav('/home') }}>{t('Nice!')}</Button>
+    <div style={{ height: 8 }} />
+    <Button variant="ghost" icon="reset" onClick={() => { close(); undoFinish() }}>{t('Undo finish')}</Button>
   </div>
 }
 export function finishWorkout() {
@@ -936,6 +984,7 @@ function doFinishWorkout() {
   const st = S()
   const A = st.active
   if (!A) return
+  const finishedSession = cloneJson(A)
   const prs = []
   const e1prs = []
   A.entries.forEach(e => {
@@ -955,12 +1004,24 @@ function doFinishWorkout() {
     prs
   }
   w.vol = workoutVolume(w)
+  const finishedUndo = {
+    workoutId: w.id,
+    workoutEnd: w.end,
+    replacedIndex: -1,
+    replacedWorkout: null,
+    previousExWeights: Object.fromEntries(A.entries.map(entry => {
+      const present = Object.prototype.hasOwnProperty.call(st.exWeights || {}, entry.id)
+      return [entry.id, { present, value: present ? cloneJson(st.exWeights[entry.id]) : null }]
+    }))
+  }
   update(s => {
     w.entries.forEach(e => {
       const mx = Math.max(0, ...e.sets.filter(x => x.done).map(x => x.w || 0), e.topW || 0)
       if (mx > 0) { const cur = s.exWeights[e.id]; if (!cur || mx > cur.w) s.exWeights[e.id] = { w: mx, d: w.d } }
     })
     s.workouts.push(w)
+    s.lastFinishedSession = finishedSession
+    s.lastFinishedUndo = finishedUndo
     s.active = null
   })
   useUI.getState().stopRest()

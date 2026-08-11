@@ -133,6 +133,7 @@ export default {
   'PRs': 'Recordes',
   'New PR:': 'Novo recorde:',
   'Nice!': 'Boa!',
+  'Undo finish': 'Anular conclusão',
   'Nothing logged yet': 'Ainda nada registado',
   'You haven’t checked off any sets. Finish the workout anyway?': 'Não marcaste nenhuma série. Terminar o treino mesmo assim?',
   'Finish anyway': 'Terminar mesmo assim',

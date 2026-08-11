@@ -133,6 +133,7 @@ export default {
   'PRs': 'रिकॉर्ड',
   'New PR:': 'नया रिकॉर्ड:',
   'Nice!': 'बहुत बढ़िया!',
+  'Undo finish': 'समाप्ति पूर्ववत करें',
   'Nothing logged yet': 'अभी कुछ दर्ज नहीं',
   'You haven’t checked off any sets. Finish the workout anyway?': 'आपने कोई सेट चेक नहीं किया। फिर भी वर्कआउट समाप्त करें?',
   'Finish anyway': 'फिर भी समाप्त करें',

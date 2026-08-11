@@ -133,6 +133,7 @@ export default {
   'PRs': 'Рекорды',
   'New PR:': 'Новый рекорд:',
   'Nice!': 'Отлично!',
+  'Undo finish': 'Отменить завершение',
   'Nothing logged yet': 'Пока ничего не записано',
   'You haven’t checked off any sets. Finish the workout anyway?': 'Ни один подход не отмечен. Всё равно завершить тренировку?',
   'Finish anyway': 'Всё равно завершить',
