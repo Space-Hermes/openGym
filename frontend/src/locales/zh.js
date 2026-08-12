@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} 组 · {1} 工作',
   'Make superset with previous': '与上一个组成超级组',
   'Make superset with next': '与下一个组成超级组',
-  'Unpair': '取消组合'
+  'Unpair': '取消组合',
+  'Primary muscle groups': '主要肌群',
 }

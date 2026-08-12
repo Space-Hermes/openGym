@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} подходов · {1} рабочих',
   'Make superset with previous': 'Суперсет с предыдущим',
   'Make superset with next': 'Суперсет со следующим',
-  'Unpair': 'Разъединить'
+  'Unpair': 'Разъединить',
+  'Primary muscle groups': 'Основные группы мышц',
 }

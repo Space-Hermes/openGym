@@ -586,5 +586,6 @@ export default {
   '{0} sets · {1} work': '{0} Sätze · {1} Arbeit',
   'Make superset with previous': 'Mit vorheriger Übung kombinieren',
   'Make superset with next': 'Mit nächster Übung kombinieren',
-  'Unpair': 'Trennen'
+  'Unpair': 'Trennen',
+  'Primary muscle groups': 'Primäre Muskelgruppen',
 }

@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} 세트 · {1} 작업',
   'Make superset with previous': '이전 운동과 슈퍼셋',
   'Make superset with next': '다음 운동과 슈퍼셋',
-  'Unpair': '분리'
+  'Unpair': '분리',
+  'Primary muscle groups': '주요 근육 그룹',
 }

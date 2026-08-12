@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} सेट · {1} काम',
   'Make superset with previous': 'पिछले के साथ सुपरसेट',
   'Make superset with next': 'अगले के साथ सुपरसेट',
-  'Unpair': 'अलग करें'
+  'Unpair': 'अलग करें',
+  'Primary muscle groups': 'प्राथमिक मांसपेशी समूह',
 }

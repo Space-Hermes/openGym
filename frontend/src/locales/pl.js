@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} serii · {1} praca',
   'Make superset with previous': 'Połącz z poprzednim',
   'Make superset with next': 'Połącz z następnym',
-  'Unpair': 'Rozłącz'
+  'Unpair': 'Rozłącz',
+  'Primary muscle groups': 'Podstawowe grupy mięśniowe',
 }

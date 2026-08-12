@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} séries · {1} trabalho',
   'Make superset with previous': 'Fazer superset com o anterior',
   'Make superset with next': 'Fazer superset com o próximo',
-  'Unpair': 'Desfazer'
+  'Unpair': 'Desfazer',
+  'Primary muscle groups': 'Grupos musculares primários',
 }

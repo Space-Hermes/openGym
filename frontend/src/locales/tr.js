@@ -569,5 +569,6 @@ export default {
   '{0} sets · {1} work': '{0} set · {1} çalışma',
   'Make superset with previous': 'Öncekiyle superset yap',
   'Make superset with next': 'Sonrakiyle superset yap',
-  'Unpair': 'Ayır'
+  'Unpair': 'Ayır',
+  'Primary muscle groups': 'Birincil kas grupları',
 }
