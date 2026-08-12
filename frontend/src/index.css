@@ -609,6 +609,10 @@ h4.sec{
 .cfgrow .stp-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* --- rest timer --- */
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
 #timer{
   position:fixed;left:12px;right:12px;bottom:calc(88px + var(--sab));z-index:60;
   /* nearly opaque: the set rows underneath were reading through the old 82% and made the

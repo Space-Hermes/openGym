@@ -1,0 +1,13 @@
+diff a/frontend/src/store/useUI.js b/frontend/src/store/useUI.js	(rejected hunks)
+@@ -116,7 +116,10 @@ export const useUI = create((set, get) => ({
+   startRest(sec) {
+     // Work and rest are mutually exclusive in both directions. In particular, a finished work
+     // popup must not be allowed to cover a newly started rest countdown.
+-    get().stopWork()
++    // A completed hold still represents the planned work the user performed, so preserve it
++    // before another timer displaces the popup. A running hold was abandoned and stays silent.
++    if (get().work?.done) get().logWorkPlanned()
++    else get().stopWork()
+     get().stopRest()
+     const endsAt = Date.now() + sec * 1000
+     set({ timer: { left: sec, total: sec, endsAt } })

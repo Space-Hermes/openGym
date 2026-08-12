@@ -75,6 +75,10 @@ export const useUI = create((set, get) => ({
   },
 
   startRest(sec) {
+    // A completed hold still represents the planned work the user performed, so preserve it
+    // before another timer displaces the popup; a running hold was abandoned and stays silent.
+    if (get().work?.done) get().logWorkPlanned()
+    else get().stopWork()
     get().stopRest()
     const endsAt = Date.now() + sec * 1000
     set({ timer: { left: sec, total: sec, endsAt } })
@@ -125,7 +129,8 @@ export const useUI = create((set, get) => ({
      finish; the elapsed time is what actually gets logged, so stopping at 0:38 of a 0:45
      hold records 0:38 rather than crediting the full target. */
   startWork(sec, label, onDone) {
-    get().stopWork()
+    if (get().work?.done) get().logWorkPlanned()
+    else get().stopWork()
     get().stopRest()
     const total = Math.max(1, Math.round(sec) || 1)
     const endsAt = Date.now() + total * 1000

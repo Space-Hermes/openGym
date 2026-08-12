@@ -24,8 +24,9 @@ export default function RestTimer() {
   const pct = (on.left / on.total) * 100
 
   if (work?.done) return (
-    <div id="timer" className="working ready" role="status" aria-live="polite" aria-atomic="true">
+    <div id="timer" className="working ready">
       <div className="head">
+        <span className="sr-only" role="status">{t('Time\'s up!')}</span>
         <div className="t">{t('Time\'s up!')}{work.left < 0 ? ' +' + clock(-work.left) : ''}</div>
         {work.label && <div className="lbl">{work.label}</div>}
         <div className="bar"><i style={{ width: '100%' }} /></div>

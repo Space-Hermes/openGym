@@ -837,6 +837,7 @@ export function beginWorkout(routineId, bw) {
     s.active = { id: uid(), d: todayISO(), start: Date.now(), routineId, name: r ? r.name : t('Freestyle'), bw: bw || null, cur: 0, entries }
   })
   useUI.getState().stopRest()
+  useUI.getState().stopWork()
   nav('/workout')
 }
 function TopWeight({ entryIdx, close }) {
