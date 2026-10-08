@@ -1,0 +1,64 @@
+{
+  "sourcePullRequest": "https://github.com/DuarteSantos8/openGym/pull/91",
+  "sourceHead": "797d98826c64c4b3c12e38f0039c665739db0e2a",
+  "sourceTree": "32195e034b9f95b41a6e61a7d7910dcb8918ad67",
+  "capturedAt": "2026-10-08",
+  "data": "Synthetic demonstration records; no personal profile or live server data",
+  "images": [
+    {
+      "name": "plan-tabs-rest-week.jpg",
+      "bytes": 45407,
+      "gitBlobSha": "c45ee93bdb8a1502936a3dd98da300344e0a2ab1",
+      "sha256": "f3e75c6773c61b90f69fc038851b12f05ffbf2cfbcb5e4ac238a1c0395f5b671",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "fullPage": false
+    },
+    {
+      "name": "programme-session-targets.jpg",
+      "bytes": 81559,
+      "gitBlobSha": "46ed130a128854d947b6140ffd8b3566fe32ea9a",
+      "sha256": "541477a9887c549cb13d68dbd711293bace52b3d013b19df5b8f15c5eec721cc",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "fullPage": true
+    },
+    {
+      "name": "programme-share-export.jpg",
+      "bytes": 25811,
+      "gitBlobSha": "2685e3ca51927f3ef85696ca7f0cafefc781501e",
+      "sha256": "58c1f7c3944af6bb071162325c21e433ad8fe35547b9e69d69b6f8394e1f1b45",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "fullPage": false
+    },
+    {
+      "name": "programme-share-import.jpg",
+      "bytes": 25006,
+      "gitBlobSha": "92e73b824f9eafbb56045e24f0721a1ff847699d",
+      "sha256": "6777dd630c541308f36e4acea83a7bf7cd1f2e215835117aff5ac74b76dbc44f",
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "fullPage": false
+    },
+    {
+      "name": "plan-programmes-mobile.jpg",
+      "bytes": 35128,
+      "gitBlobSha": "b73b02b512b2f030456afe3f57bf4af753bb0121",
+      "sha256": "5aa2b02a734af420b94971a08cb4c94392de5cea1e5ad911bba995a582ec4bb9",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "fullPage": false
+    }
+  ]
+}
