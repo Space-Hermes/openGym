@@ -1,7 +1,7 @@
-From 06e570507d7ba5bb95f5615675dbbda005151e58 Mon Sep 17 00:00:00 2001
+From 1487588494ab8b86f82df09d94ba7aef97d6b15e Mon Sep 17 00:00:00 2001
 From: Space-Hermes <290709289+Space-Hermes@users.noreply.github.com>
-Date: Wed, 18 Nov 2026 07:50:34 +0100
-Subject: [PATCH] Add optional workout phases to routines and active sessions
+Date: Wed, 18 Nov 2026 08:11:56 +0100
+Subject: [PATCH] Add optional workout phases with direct drag reordering
 
 Prepared from OpenGym PR #610 for upstream main e4a68a94c.
 ---
@@ -26,9 +26,9 @@ Prepared from OpenGym PR #610 for upstream main e4a68a94c.
  frontend/src/components/Icon.jsx              |   1 +
  frontend/src/components/WorkoutChips.jsx      |  19 +-
  frontend/src/components/WorkoutChips.test.jsx |  40 ++
- frontend/src/components/WorkoutSections.jsx   | 374 ++++++++++++++++++
+ frontend/src/components/WorkoutSections.jsx   | 389 ++++++++++++++++++
  .../src/components/WorkoutSections.test.jsx   | 129 ++++++
- frontend/src/index.css                        | 103 +++++
+ frontend/src/index.css                        | 106 +++++
  frontend/src/lib/active-workout-order.js      |   2 +
  frontend/src/lib/coach-adapt.js               |  20 +-
  frontend/src/lib/coach.js                     |  21 +-
@@ -50,7 +50,7 @@ Prepared from OpenGym PR #610 for upstream main e4a68a94c.
  frontend/src/lib/routines.replace.test.js     |   6 +
  frontend/src/lib/routines.update.test.js      |  16 +
  frontend/src/lib/session-edit.js              |   8 +-
- frontend/src/lib/session-edit.test.js         |  22 ++
+ frontend/src/lib/session-edit.test.js         |  22 +
  frontend/src/lib/session-merge.js             |  64 ++-
  frontend/src/lib/session-merge.test.js        |  43 +-
  frontend/src/lib/session-routines.js          |   4 +-
@@ -59,49 +59,50 @@ Prepared from OpenGym PR #610 for upstream main e4a68a94c.
  frontend/src/lib/set-records.js               |   9 +-
  frontend/src/lib/supersetFlow.js              |   2 +-
  frontend/src/lib/sync-merge.test.js           |  11 +
+ frontend/src/lib/use-list-reorder.js          |  28 ++
  frontend/src/lib/workout-keys.js              |   1 +
  frontend/src/lib/workout-phase-skip.test.js   | 122 ++++++
  .../src/lib/workout-sections-compat.test.js   | 125 ++++++
- frontend/src/lib/workout-sections.js          | 136 +++++++
- frontend/src/lib/workout-sections.test.js     | 154 ++++++++
- frontend/src/locales/ar.js                    |  68 ++++
- frontend/src/locales/bn.js                    |  68 ++++
- frontend/src/locales/cs.js                    |  67 ++++
- frontend/src/locales/da.js                    |  67 ++++
+ frontend/src/lib/workout-sections.js          | 136 ++++++
+ frontend/src/lib/workout-sections.test.js     | 154 +++++++
+ frontend/src/locales/ar.js                    |  68 +++
+ frontend/src/locales/bn.js                    |  68 +++
+ frontend/src/locales/cs.js                    |  67 +++
+ frontend/src/locales/da.js                    |  67 +++
  frontend/src/locales/de.js                    |  69 ++++
  frontend/src/locales/es.js                    |  69 ++++
- frontend/src/locales/fa.js                    |  67 ++++
+ frontend/src/locales/fa.js                    |  67 +++
  frontend/src/locales/fr.js                    |  69 ++++
  frontend/src/locales/hi.js                    |  69 ++++
  frontend/src/locales/hu.js                    |  69 ++++
- frontend/src/locales/id.js                    |  67 ++++
+ frontend/src/locales/id.js                    |  67 +++
  frontend/src/locales/it.js                    |  69 ++++
  frontend/src/locales/ko.js                    |  69 ++++
- frontend/src/locales/lt.js                    |  67 ++++
+ frontend/src/locales/lt.js                    |  67 +++
  frontend/src/locales/pl.js                    |  69 ++++
  frontend/src/locales/pt-BR.js                 |  71 +++-
  frontend/src/locales/pt.js                    |  69 ++++
  frontend/src/locales/ru.js                    |  69 ++++
- frontend/src/locales/sv.js                    |  67 ++++
+ frontend/src/locales/sv.js                    |  67 +++
  frontend/src/locales/th.js                    |  69 ++++
  frontend/src/locales/tr.js                    |  69 ++++
- frontend/src/locales/uk.js                    |  68 ++++
- frontend/src/locales/vi.js                    |  67 ++++
- frontend/src/locales/zh-TW.js                 |  68 ++++
+ frontend/src/locales/uk.js                    |  68 +++
+ frontend/src/locales/vi.js                    |  67 +++
+ frontend/src/locales/zh-TW.js                 |  68 +++
  frontend/src/locales/zh.js                    |  69 ++++
- frontend/src/sheets.jsx                       |  44 ++-
+ frontend/src/sheets.jsx                       |  44 +-
  frontend/src/store/useStore.js                |  20 +-
  frontend/src/views/FocusView.jsx              |   4 +-
  frontend/src/views/FocusView.test.jsx         |  19 +
- frontend/src/views/RoutineEdit.drag.test.jsx  |  80 ++++
- frontend/src/views/RoutineEdit.jsx            | 256 ++++++++----
- frontend/src/views/Workout.jsx                | 228 +++++++----
+ frontend/src/views/RoutineEdit.drag.test.jsx  | 124 ++++++
+ frontend/src/views/RoutineEdit.jsx            | 285 +++++++------
+ frontend/src/views/Workout.jsx                | 228 ++++++----
  frontend/src/views/Workout.keys.test.jsx      |  36 ++
  frontend/src/views/Workout.remove.test.jsx    |  73 ++++
  frontend/src/views/Workout.test.jsx           |  33 ++
  mcp/src/tools.js                              |   7 +-
  mcp/test/tools.test.js                        |  19 +
- 96 files changed, 4142 insertions(+), 296 deletions(-)
+ 97 files changed, 4233 insertions(+), 324 deletions(-)
  create mode 100644 api/coach/core/workout-sections.js
  create mode 100644 docs/WORKOUT_PHASES.md
  create mode 100644 docs/screenshots/workout-phases/desktop-editor.jpg
@@ -376,7 +377,7 @@ index 9e5f49b44fa38abdc4d63964da609edf7bfe8c4a..7c0401305ba07d9b496540d3bc6fe880
      ]
 diff --git a/docs/WORKOUT_PHASES.md b/docs/WORKOUT_PHASES.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..f77c4d8e98bccca9fc3181af82e3b920b2531467
+index 0000000000000000000000000000000000000000..80eacab9d3fa0c8387ed269d1df2bbdbafd8ebca
 --- /dev/null
 +++ b/docs/WORKOUT_PHASES.md
 @@ -0,0 +1,100 @@
@@ -394,9 +395,9 @@ index 0000000000000000000000000000000000000000..f77c4d8e98bccca9fc3181af82e3b920
 +
 +Open an exercise's **…** actions to move it up/down, remove it, change its superset link or choose a destination phase. A contiguous superset is labeled **Move group to phase** and moves together. Only one exercise actions panel opens at a time; Escape closes it and returns focus to its trigger. The visible grip also drags an exercise or group between phases, including empty phases. Move up/down supports keyboard and pointer ordering within phase boundaries. A phase move brings the moved exercise into view.
 +
-+**Add phase** opens the phase choices directly and brings the new section into view. The **…** in a phase header expands its name, colour, training settings, order and removal controls in place. Save closes this editor and returns focus to the phase header. Empty phases can be removed directly; occupied phases retain the explicit destination choice. The separate Manage phases entry is no longer needed. Routine-level settings collapse while editing phases, leaving the exercise plan first; flat routines retain their existing controls.
++**Add phase** opens the phase choices directly and brings the new section into view. The **…** in a phase header expands its name, colour, training settings, order and removal controls in place. Save closes this editor and returns focus to the phase header. Empty phases can be removed directly; occupied phases retain the explicit destination choice. Routine-level settings collapse while editing phases, leaving the exercise plan first; flat routines retain their existing controls.
 +
-+Drag a phase by its grip to reorder the whole phase, including its exercises and supersets. On touch screens, hold the grip before moving. The existing Move up/down controls remain available in phase settings. Active-workout phase dragging is available in List and Compact layouts; Cards and Focus show one phase at a time. Structural changes remain disabled during a running set timer.
++Drag a phase by its grip to reorder the whole phase, including its exercises and supersets. The grip responds as soon as you drag it with a finger or mouse. In the routine editor, **Workout phases** opens a compact list with the same grips and Move up/down buttons. Tap a phase name in this list to edit its settings. Move up/down is also available in the inline phase settings. Active-workout phase dragging is available in List and Compact layouts. Cards and Focus show one phase at a time. Structural changes remain disabled during a running set timer.
 +
 +Tap a phase header to minimise or expand its contents. This only changes the current view; exercise data and logged sets are retained.
 +
@@ -3903,10 +3904,10 @@ index 0000000000000000000000000000000000000000..b27142805ed54cb94487c1706dd44fbf
 \ No newline at end of file
 diff --git a/frontend/src/components/WorkoutSections.jsx b/frontend/src/components/WorkoutSections.jsx
 new file mode 100644
-index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a5f3e779b
+index 0000000000000000000000000000000000000000..b028b58a99a808da1317fb3380ab2c4bfea0645b
 --- /dev/null
 +++ b/frontend/src/components/WorkoutSections.jsx
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,389 @@
 +import { useEffect, useId, useRef, useState } from 'react'
 +import { useStore } from '../store/useStore.js'
 +import { useUI } from '../store/useUI.js'
@@ -3914,7 +3915,8 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +import { exOr } from '../lib/exercises.js'
 +import { exLine } from '../lib/history.js'
 +import { uid } from '../lib/format.js'
-+import { SECTION_PRESETS, SECTION_COLORS, sectionColor, addSection, moveSection, removeSection, updateSection, cleanSection, sectionLabel } from '../lib/workout-sections.js'
++import { SECTION_PRESETS, SECTION_COLORS, sectionColor, addSection, moveSection, reorderSection, removeSection, updateSection, cleanSection, sectionLabel } from '../lib/workout-sections.js'
++import { autoScrollStep, scrollHostFor } from '../lib/use-list-reorder.js'
 +import { Button } from './ui.jsx'
 +import Icon from './Icon.jsx'
 +
@@ -3926,11 +3928,7 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +  </h3>
 +}
 +
-+const PHASE_LONG_PRESS_MS = 380
-+const PHASE_DRAG_SLOP = 8
-+
-+// One pointer path serves routine editing and the active workout list. Exercise dragging uses a
-+// different handle, so starting either gesture cannot accidentally start the other.
++// Phases lift immediately on their dedicated grip. The rest of the row stays available for scrolling and taps.
 +export function usePhaseReorder(listRef, sections, disabled, onDrop) {
 +  const [drag, setDrag] = useState(null)
 +  const gestureRef = useRef(null)
@@ -3948,88 +3946,82 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +    const snapshotMatches = gesture => sectionsRef.current.map(section => section.id).join('\0') === gesture.snapshot
 +    let scrollFrame = null
 +    const targetAt = y => {
-+      const zones = [...list.querySelectorAll('[data-section-zone]')]
++      const zones = [...list.children].filter(node => node.hasAttribute('data-section-zone'))
 +        .map(node => ({ id: node.dataset.sectionId, rect: node.getBoundingClientRect() }))
 +      return zones.find(zone => y >= zone.rect.top && y <= zone.rect.bottom)?.id
 +        || zones.reduce((nearest, zone) => !nearest || Math.abs(y - (zone.rect.top + zone.rect.bottom) / 2) < Math.abs(y - (nearest.rect.top + nearest.rect.bottom) / 2) ? zone : nearest, null)?.id
 +    }
 +    const finish = (gesture, commit) => {
 +      if (gestureRef.current !== gesture) return
-+      if (gesture.timer) window.clearTimeout(gesture.timer)
 +      if (scrollFrame != null) window.cancelAnimationFrame(scrollFrame)
 +      scrollFrame = null
 +      gestureRef.current = null
 +      try { gesture.handle.releasePointerCapture?.(gesture.pointerId) } catch { /* unsupported */ }
 +      setDrag(null)
-+      if (commit && gesture.active && snapshotMatches(gesture) && gesture.targetId && gesture.targetId !== gesture.sourceId) {
++      if (commit && snapshotMatches(gesture) && gesture.targetId && gesture.targetId !== gesture.sourceId) {
 +        onDropRef.current(gesture.sourceId, gesture.targetId)
 +      }
 +    }
-+    const lift = gesture => {
-+      if (gestureRef.current !== gesture || !snapshotMatches(gesture)) return finish(gesture, false)
-+      gesture.active = true
-+      gesture.timer = null
-+      try { gesture.handle.setPointerCapture?.(gesture.pointerId) } catch { /* unsupported */ }
-+      setDrag({ sourceId: gesture.sourceId, targetId: gesture.sourceId })
-+    }
 +    const onPointerDown = event => {
 +      const handle = event.target.closest?.('[data-phase-drag-handle]')
-+      if (!handle || !list.contains(handle) || event.isPrimary === false || (event.pointerType !== 'touch' && event.button !== 0)) return
-+      const sourceId = handle.closest('[data-section-zone]')?.dataset.sectionId
-+      if (!sourceId) return
-+      const gesture = { pointerId: event.pointerId, pointerType: event.pointerType, handle, sourceId,
-+        startX: event.clientX, startY: event.clientY, active: false,
++      const zone = handle?.closest('[data-section-zone]')
++      if (zone?.parentElement !== list || handle.disabled || gestureRef.current || event.isPrimary === false || event.button !== 0) return
++      event.preventDefault()
++      const sourceId = zone.dataset.sectionId
++      gestureRef.current = { pointerId: event.pointerId, handle, sourceId, scrollHost: scrollHostFor(list),
 +        snapshot: sectionsRef.current.map(section => section.id).join('\0') }
-+      gestureRef.current = gesture
-+      if (event.pointerType === 'touch') gesture.timer = window.setTimeout(() => lift(gesture), PHASE_LONG_PRESS_MS)
-+      else lift(gesture)
++      try { handle.setPointerCapture?.(event.pointerId) } catch { /* unsupported */ }
++      setDrag({ sourceId, targetId: sourceId })
++    }
++    const updateTarget = gesture => {
++      const targetId = targetAt(gesture.lastY)
++      if (!targetId) return
++      gesture.targetId = targetId
++      setDrag(current => current?.targetId === targetId ? current : { sourceId: gesture.sourceId, targetId })
++    }
++    const autoScroll = () => {
++      scrollFrame = null
++      const gesture = gestureRef.current
++      if (!gesture) return
++      const step = autoScrollStep(gesture.scrollHost, gesture.lastY)
++      if (!step) return
++      if (gesture.scrollHost === window) window.scrollBy(0, step)
++      else gesture.scrollHost.scrollTop += step
++      updateTarget(gesture)
++      scrollFrame = window.requestAnimationFrame(autoScroll)
 +    }
 +    const onPointerMove = event => {
 +      const gesture = gestureRef.current
 +      if (!gesture || gesture.pointerId !== event.pointerId) return
-+      if (!gesture.active) {
-+        if (Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > PHASE_DRAG_SLOP) finish(gesture, false)
-+        return
-+      }
++      if (!snapshotMatches(gesture)) return finish(gesture, false)
 +      event.preventDefault()
 +      gesture.lastY = event.clientY
-+      const targetId = targetAt(event.clientY)
-+      if (targetId) {
-+        gesture.targetId = targetId
-+        setDrag(current => current?.targetId === targetId ? current : { sourceId: gesture.sourceId, targetId })
-+      }
-+      if (scrollFrame == null && (event.clientY < 56 || event.clientY > window.innerHeight - 56)) scrollFrame = window.requestAnimationFrame(function scroll() {
-+        scrollFrame = null
-+        const current = gestureRef.current
-+        if (!current?.active) return
-+        const step = current.lastY < 56 ? -10 : current.lastY > window.innerHeight - 56 ? 10 : 0
-+        if (!step) return
-+        window.scrollBy?.(0, step)
-+        const nextTarget = targetAt(current.lastY)
-+        if (nextTarget) {
-+          current.targetId = nextTarget
-+          setDrag({ sourceId: current.sourceId, targetId: nextTarget })
-+        }
-+        scrollFrame = window.requestAnimationFrame(scroll)
-+      })
++      updateTarget(gesture)
++      if (scrollFrame == null) scrollFrame = window.requestAnimationFrame(autoScroll)
 +    }
 +    const onPointerUp = event => {
 +      const gesture = gestureRef.current
 +      if (gesture?.pointerId === event.pointerId) {
-+        const rect = list.getBoundingClientRect()
-+        const inside = event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
-+        if (gesture.active && inside) gesture.targetId = targetAt(event.clientY)
++        const containsPointer = rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
++        const inside = containsPointer(list.getBoundingClientRect())
++          && (gesture.scrollHost === window || containsPointer(gesture.scrollHost.getBoundingClientRect()))
++        if (inside) gesture.targetId = targetAt(event.clientY)
 +        finish(gesture, inside)
 +      }
 +    }
 +    const cancel = () => { if (gestureRef.current) finish(gestureRef.current, false) }
-+    const onKeyDown = event => { if (event.key === 'Escape') cancel() }
++    const onPointerCancel = event => { if (gestureRef.current?.pointerId === event.pointerId) cancel() }
++    const onKeyDown = event => {
++      if (event.key !== 'Escape' || !gestureRef.current) return
++      event.stopPropagation()
++      cancel()
++    }
 +    const onVisibility = () => { if (document.visibilityState === 'hidden') cancel() }
 +    list.addEventListener('pointerdown', onPointerDown)
 +    document.addEventListener('pointermove', onPointerMove, { passive: false })
 +    document.addEventListener('pointerup', onPointerUp)
-+    document.addEventListener('pointercancel', cancel)
-+    document.addEventListener('lostpointercapture', cancel, true)
++    document.addEventListener('pointercancel', onPointerCancel)
++    document.addEventListener('lostpointercapture', onPointerCancel, true)
 +    document.addEventListener('keydown', onKeyDown)
 +    document.addEventListener('visibilitychange', onVisibility)
 +    window.addEventListener('blur', cancel)
@@ -4038,8 +4030,8 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +      list.removeEventListener('pointerdown', onPointerDown)
 +      document.removeEventListener('pointermove', onPointerMove)
 +      document.removeEventListener('pointerup', onPointerUp)
-+      document.removeEventListener('pointercancel', cancel)
-+      document.removeEventListener('lostpointercapture', cancel, true)
++      document.removeEventListener('pointercancel', onPointerCancel)
++      document.removeEventListener('lostpointercapture', onPointerCancel, true)
 +      document.removeEventListener('keydown', onKeyDown)
 +      document.removeEventListener('visibilitychange', onVisibility)
 +      window.removeEventListener('blur', cancel)
@@ -4047,6 +4039,17 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +  }, [disabled, listRef, sections?.length])
 +
 +  return drag
++}
++
++function phaseDragClass(drag, id) {
++  if (drag?.sourceId === id) return ' is-phase-dragging'
++  if (drag?.targetId === id) return ' is-phase-drop-target'
++  return ''
++}
++
++function PhaseGrip({ label, disabled }) {
++  return <button type="button" className="phase-drag-handle" data-phase-drag-handle data-nodrag disabled={disabled} tabIndex={-1}
++    aria-label={`${t('Drag to reorder')}: ${label}`} title={t('Drag to reorder')}><Icon name="grip" /></button>
 +}
 +
 +export function SectionActions({ section, count, onAdd, onRemove, disabled }) {
@@ -4069,9 +4072,9 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +      editButton.current?.scrollIntoView?.({ block: 'nearest' })
 +    })
 +  }
-+  return <section className={'workout-phase' + (collapsed ? ' is-collapsed' : '') + (dropTarget ? ' is-drop-target' : '') + (phaseDrag?.sourceId === section.id ? ' is-phase-dragging' : '') + (phaseDrag?.targetId === section.id && phaseDrag.sourceId !== section.id ? ' is-phase-drop-target' : '')} style={{ '--phase-color': sectionColor(section) }} data-section-zone data-section-id={section.id} aria-label={label}>
++  return <section className={'workout-phase' + (collapsed ? ' is-collapsed' : '') + (dropTarget ? ' is-drop-target' : '') + phaseDragClass(phaseDrag, section.id)} style={{ '--phase-color': sectionColor(section) }} data-section-zone data-section-id={section.id} aria-label={label}>
 +    <div className="workout-phase-header">
-+      {reorderable && <button type="button" className="phase-drag-handle" data-phase-drag-handle data-nodrag disabled={disabled} aria-label={`${t('Drag to reorder')}: ${label}`} title={t('Drag to reorder')}><Icon name="grip" /></button>}
++      {reorderable && <PhaseGrip label={label} disabled={disabled} />}
 +      <button type="button" className="workout-phase-toggle" aria-expanded={!collapsed} aria-controls={bodyId}
 +        aria-label={`${t(collapsed ? 'Expand' : 'Minimize')}: ${label}`} title={t(collapsed ? 'Expand' : 'Minimize')}
 +        onClick={() => { if (!collapsed) setEditing(false); setCollapsed(value => !value) }}>
@@ -4182,15 +4185,23 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +  const [destination, setDestination] = useState('')
 +  const [presetEdit, setPresetEdit] = useState(null)
 +  const [error, setError] = useState('')
-+  if (!target) return <p>{t('This workout or routine is no longer available.')}</p>
-+  const sections = target.sections || []
++  const orderList = useRef(null)
++  const sections = target?.sections || []
 +  const presets = S.sectionPresets || []
++  const section = sections.find(s => s.id === editing)
++  const remove = sections.find(s => s.id === deleting)
++  const showOrder = sections.length > 0 && !adding && !section && !remove
++  const locked = !routineId && !!running
 +  const mutate = fn => {
 +    setError('')
 +    try {
 +      return editWorkoutSections({ routineId, activeId }, fn, onStructureChange)
 +    } catch (err) { setError(t(err.message)) }
 +  }
++  const drag = usePhaseReorder(orderList, sections, !showOrder || locked, (sourceId, targetId) => {
++    mutate(current => reorderSection(current, sourceId, targetId))
++  })
++  if (!target) return <p>{t('This workout or routine is no longer available.')}</p>
 +  const finishAdding = id => {
 +    // Sheet dismissal rewinds its browser-history entry, which restores the old scroll.
 +    // Reveal the new section after that restoration, not while the body is still pinned.
@@ -4200,14 +4211,12 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +    setAdding(false); close?.()
 +  }
 +  const add = preset => { let id; if (mutate(current => { id = addSection(current, preset) })) finishAdding(id) }
-+  const section = sections.find(s => s.id === editing)
-+  const remove = sections.find(s => s.id === deleting)
 +  return <div className="section-manager">
 +    {!inline && <h3>{t(adding ? 'Add phase' : section ? 'Edit phase' : 'Workout phases')}</h3>}
 +    {!routineId && <p className="small muted">{t('Changes apply to this workout.')}</p>}
 +    {!routineId && running && <p role="status">{t('Finish the running set timer before changing phases.')}</p>}
 +    {error && <p role="alert">{error}</p>}
-+    <fieldset disabled={!routineId && !!running}>
++    <fieldset disabled={locked}>
 +      {section ? <>
 +        {inline && <div className="section-row-actions phase-order-actions">
 +          <Button size="sm" icon="chevronUp" disabled={sections[0].id === section.id} onClick={() => mutate(current => moveSection(current, section.id, -1))}>{t('Move up')}</Button>
@@ -4236,7 +4245,10 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +        <Button variant="danger" disabled={sections.length > 1 && !destination} onClick={() => { if (mutate(current => removeSection(current, remove.id, destination))) { setDeleting(null); if (inline) close?.() } }}>{t('Remove phase, keep exercises')}</Button>
 +        <Button onClick={() => { setDeleting(null); if (inline) setEditing(initialEditing) }}>{t('Cancel')}</Button>
 +      </> : <>
-+        {sections.length > 0 && !adding && <div className="section-order">{sections.map((s, i) => <div className="section-order-row" key={s.id}>
++        {showOrder && sections.length > 1 && <p className="small muted">{t('Drag to reorder')}</p>}
++        {showOrder && <div className="section-order" ref={orderList}>{sections.map((s, i) => <div className={'section-order-row' + phaseDragClass(drag, s.id)}
++          style={{ '--phase-color': sectionColor(s) }} key={s.id} data-section-zone data-section-id={s.id}>
++          {sections.length > 1 && <PhaseGrip label={sectionLabel(s, t)} disabled={locked} />}
 +          <button className="btn ghost section-name" onClick={() => setEditing(s.id)}>{sectionLabel(s, t)}<Icon name="pencil" /></button>
 +          <button className="iconbtn" disabled={i === 0} aria-label={t('Move phase up: {0}', sectionLabel(s, t))} onClick={() => mutate(current => moveSection(current, s.id, -1))}><Icon name="chevronUp" /></button>
 +          <button className="iconbtn" disabled={i === sections.length - 1} aria-label={t('Move phase down: {0}', sectionLabel(s, t))} onClick={() => mutate(current => moveSection(current, s.id, 1))}><Icon name="chevronDown" /></button>
@@ -4277,8 +4289,12 @@ index 0000000000000000000000000000000000000000..f0bc5e77f03c516c28d8735ed178264a
 +  const target = useStore(s => routineId ? s.S.routines.find(r => r.id === routineId) : s.S.active?.id === activeId ? s.S.active : null)
 +  const running = useUI(s => s.work)
 +  if (!target) return null
-+  return <div className="workout-section-toolbar"><span className="small muted">{t('Workout phases')}</span><Button size="sm" icon="plus" disabled={!routineId && !!running}
-+    onClick={() => useUI.getState().openSheet(close => <SectionManager routineId={routineId} activeId={activeId} close={close} onStructureChange={onStructureChange} startAdding />)}>{t('Add phase')}</Button>
++  const openManager = startAdding => useUI.getState().openSheet(close => <SectionManager routineId={routineId} activeId={activeId}
++    close={close} onStructureChange={onStructureChange} startAdding={startAdding} />)
++  return <div className="workout-section-toolbar">
++    {routineId && target.sections?.length ? <Button size="sm" variant="tinted" aria-haspopup="dialog" onClick={() => openManager(false)}>{t('Workout phases')}</Button>
++      : <span className="small muted">{t('Workout phases')}</span>}
++    <Button size="sm" icon="plus" aria-haspopup="dialog" disabled={!routineId && !!running} onClick={() => openManager(true)}>{t('Add phase')}</Button>
 +  </div>
 +}
 diff --git a/frontend/src/components/WorkoutSections.test.jsx b/frontend/src/components/WorkoutSections.test.jsx
@@ -4417,7 +4433,7 @@ index 0000000000000000000000000000000000000000..7446e2e34a122f329debbc66ca6f760e
 +  expect(onDrop).toHaveBeenCalledWith('warm', 'work')
 +})
 diff --git a/frontend/src/index.css b/frontend/src/index.css
-index e58948aa2bb26c11f73ef977761ca54c9aae09dc..42bdeafa1704a9bc50b650f1c40fb1b2e9a7cc4b 100644
+index e58948aa2bb26c11f73ef977761ca54c9aae09dc..7b6b81f418a6bec6da4a6a02099570728a44c54d 100644
 --- a/frontend/src/index.css
 +++ b/frontend/src/index.css
 @@ -3260,6 +3260,9 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
@@ -4430,7 +4446,7 @@ index e58948aa2bb26c11f73ef977761ca54c9aae09dc..42bdeafa1704a9bc50b650f1c40fb1b2
  .wchip:active{transform:scale(var(--press-scale-sm))}
  .wchip.partial{--ring:var(--orange);color:var(--label)}
  .wchip.done{--ring:transparent;color:var(--label)}
-@@ -3680,6 +3683,106 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
+@@ -3680,6 +3683,109 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
  .exfix-link{display:inline-flex;align-items:center;gap:5px;margin:14px 0 4px;color:var(--label-3);text-decoration:none}
  .list .similar-label{margin:16px 2px 6px;grid-column:1/-1}
  
@@ -4470,7 +4486,9 @@ index e58948aa2bb26c11f73ef977761ca54c9aae09dc..42bdeafa1704a9bc50b650f1c40fb1b2
 +.workout-phase-toggle { min-width: 0; min-height: 44px; flex: 1; display: flex; align-items: center; gap: 8px; padding: 0; color: inherit; text-align: left; }
 +.workout-phase-toggle .workout-section-heading { flex: 1; min-width: 0; border: 0; margin: 0; padding: 0; }
 +.workout-phase-toggle > .icn { width: 18px; height: 18px; flex: none; color: var(--label-2); }
-+.phase-drag-handle { width: 44px; height: 44px; flex: none; display: grid; place-items: center; margin-left: -8px; color: var(--label-2); cursor: grab; touch-action: none; }
++.phase-drag-handle { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 8px; color: var(--label); cursor: grab; touch-action: none; }
++.workout-phase-header > .phase-drag-handle { margin-inline-start: -8px; }
++.phase-drag-handle .icn { width: 22px; height: 22px; }
 +.phase-drag-handle:active { cursor: grabbing; }
 +.workout-phase-header > .iconbtn { width: 44px; height: 44px; flex: none; }
 +.section-exercise-actions { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 2px; }
@@ -4531,8 +4549,9 @@ index e58948aa2bb26c11f73ef977761ca54c9aae09dc..42bdeafa1704a9bc50b650f1c40fb1b2
 +.routine-phase-settings[open] > summary .icn { transform: rotate(180deg); }
 +.routine-phase-settings[open] > summary { margin-bottom: 8px; }
 +.workout-phase.is-drop-target { outline: 2px dashed var(--phase-color); outline-offset: 4px; }
-+.workout-phase.is-phase-dragging { opacity: .72; }
++.workout-phase.is-phase-dragging, .section-order-row.is-phase-dragging { opacity: .72; }
 +.workout-phase.is-phase-drop-target { outline: 2px dashed var(--phase-color); outline-offset: 4px; }
++.section-order-row.is-phase-drop-target { outline: 2px dashed var(--phase-color); outline-offset: -2px; }
 +@media (min-width: 600px) { .phase-color-options { grid-template-columns: repeat(8, minmax(44px, 1fr)); } }
  /* The edge swipe back (lib/edge-swipe-back.js): the page follows the finger, the one it goes
     back to slides in underneath with a shade over it. The sliding page's own ground reaches the
@@ -5812,6 +5831,44 @@ index b81a6adc72fd809d2e049bb6b8f7cdcbe1dca459..f90e70f38dee45b7e0a3bb40c89033a4
    it('bodyweight keeps the later-edited entry of a day, exWeights the larger weight, notes union', () => {
      const m = mergeStates(A(), B())
      expect(m.bodyweight.find(b => b.d === '2026-09-01')).toEqual({ d: '2026-09-01', w: 79, t: 20 })
+diff --git a/frontend/src/lib/use-list-reorder.js b/frontend/src/lib/use-list-reorder.js
+index 6405c84ce62d010dd98f105e28637f41f3cda893..05c2b1a404e443d8f148cedf7b7b994b91938a73 100644
+--- a/frontend/src/lib/use-list-reorder.js
++++ b/frontend/src/lib/use-list-reorder.js
+@@ -1,5 +1,33 @@
+ import { useEffect, useRef, useState } from 'react'
+ 
++export function scrollHostFor(node) {
++  for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
++    const overflowY = window.getComputedStyle(parent).overflowY
++    if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) return parent
++  }
++  return window
++}
++
++export function autoScrollStep(host, clientY) {
++  const edge = 64
++  const maxStep = 14
++  let top, bottom, scrollTop, maxScroll
++  if (host === window) {
++    const root = document.scrollingElement || document.documentElement
++    top = window.visualViewport?.offsetTop || 0
++    bottom = top + (window.visualViewport?.height || window.innerHeight || root.clientHeight)
++    scrollTop = window.scrollY || root.scrollTop || 0
++    maxScroll = Math.max(root.scrollHeight, document.body?.scrollHeight || 0) - (bottom - top)
++  } else {
++    const rect = host.getBoundingClientRect()
++    top = rect.top; bottom = rect.bottom
++    scrollTop = host.scrollTop; maxScroll = host.scrollHeight - host.clientHeight
++  }
++  if (clientY < top + edge && scrollTop > 0) return -Math.ceil(maxStep * Math.min((top + edge - clientY) / edge, 1))
++  if (clientY > bottom - edge && scrollTop < maxScroll) return Math.ceil(maxStep * Math.min((clientY - bottom + edge) / edge, 1))
++  return 0
++}
++
+ // Reorder a flat list by its handle, the way iOS does in Edit mode: press the handle and the row
+ // follows the finger at once (no long press: the handle only exists while you are reordering, so
+ // there is no scroll to tell apart), the rows it passes slide out of its way, and letting go
 diff --git a/frontend/src/lib/workout-keys.js b/frontend/src/lib/workout-keys.js
 index 253a89ec843ac381b4b9dbd1071e6f6668daa792..0bcf34995eb6ca5c288086fd58029e3f160cabce 100644
 --- a/frontend/src/lib/workout-keys.js
@@ -8748,7 +8805,7 @@ index 79b0083877a00a23f611e7b573db398b7d7050ad..1451b38ec519d9a64d38bd0181efcddc
    it('picks the bands of the set on screen, as the list does', () => {
      mount({ id: SQUAT, target: { sets: 1, reps: 10 }, sets: [{ w: 0, r: 10, done: false }] }, {
 diff --git a/frontend/src/views/RoutineEdit.drag.test.jsx b/frontend/src/views/RoutineEdit.drag.test.jsx
-index df3bc18f179cdc3dff6b9d70c631ce4ba222003c..52a676f348d1ef95b2c92981d6072ab82aadeeea 100644
+index df3bc18f179cdc3dff6b9d70c631ce4ba222003c..9cc44968689d0385dada4271e158b8704310a894 100644
 --- a/frontend/src/views/RoutineEdit.drag.test.jsx
 +++ b/frontend/src/views/RoutineEdit.drag.test.jsx
 @@ -14,6 +14,8 @@ vi.mock('../components/BodyMap.jsx', () => ({ default: () => null }))
@@ -8760,7 +8817,7 @@ index df3bc18f179cdc3dff6b9d70c631ce4ba222003c..52a676f348d1ef95b2c92981d6072ab8
  
  globalThis.IS_REACT_ACT_ENVIRONMENT = true
  const clone = value => JSON.parse(JSON.stringify(value))
-@@ -450,3 +452,81 @@ describe('reorderRoutineUnit', () => {
+@@ -450,3 +452,125 @@ describe('reorderRoutineUnit', () => {
      expect(items[0].sg).toBe('pair'); expect(items[1].sg).toBe('pair'); expect(items[3].sg).toBeUndefined()
    })
  })
@@ -8809,6 +8866,50 @@ index df3bc18f179cdc3dff6b9d70c631ce4ba222003c..52a676f348d1ef95b2c92981d6072ab8
 +    expect(host.querySelector('[data-section-zone]').textContent).toContain('Add an exercise or drag one here.')
 +  })
 +
++  it('immediately drags a phase by its header grip on touch and keeps its exercises together', () => {
++    mount([configured('0025', { sg: 'pair' }), configured('0047', { sg: 'pair' }), configured('1259')]); addWarmup()
++    const layout = geometry()
++    vi.mocked(layout.list.getBoundingClientRect).mockReturnValue(rect(80, 420))
++    const zones = host.querySelectorAll('[data-section-zone]')
++    vi.spyOn(zones[0], 'getBoundingClientRect').mockReturnValue(rect(80, 200))
++    vi.spyOn(zones[1], 'getBoundingClientRect').mockReturnValue(rect(290, 200))
++    act(() => [...rows()[2].querySelectorAll('.section-move button')].find(b => b.textContent === 'Warm-up').click())
++    const before = clone(exercises())
++    const grip = zones[0].querySelector('[data-phase-drag-handle]')
++    pointer(grip, 'pointerdown', { y: 100 })
++    pointer(grip, 'pointermove', { y: 315 })
++    expect(zones[1].classList.contains('is-phase-drop-target')).toBe(true)
++    pointer(grip, 'pointerup', { y: 315 })
++    expect(useStore.getState().S.routines[0].sections.map(s => s.type)).toEqual(['warmup', 'work'])
++    expect(exercises()).toEqual([before[2], before[0], before[1]])
++    expect(JSON.parse(localStorage.getItem('gym_state_v1')).routines[0].ex).toEqual(exercises())
++  })
++
++  it('opens a compact phase list with drag, move buttons, and separate tap-to-edit controls', () => {
++    mount([configured('0025')]); addWarmup()
++    const open = [...host.querySelectorAll('.workout-section-toolbar button')].find(b => b.textContent === 'Workout phases')
++    expect(open).toBeDefined()
++    act(() => open.click())
++    const sheet = useUI.getState().sheets.at(-1)
++    act(() => root.render(sheet.render(() => {})))
++    const list = host.querySelector('.section-order')
++    const [first, last] = list.children
++    vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(rect(80, 120))
++    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue(rect(80, 54))
++    vi.spyOn(last, 'getBoundingClientRect').mockReturnValue(rect(136, 54))
++    const grip = first.querySelector('[data-phase-drag-handle]')
++    pointer(grip, 'pointerdown', { kind: 'mouse', y: 100 })
++    pointer(grip, 'pointermove', { kind: 'mouse', y: 160 })
++    pointer(grip, 'pointerup', { kind: 'mouse', y: 160 })
++    expect(useStore.getState().S.routines[0].sections.map(s => s.type)).toEqual(['warmup', 'work'])
++    expect(list.firstElementChild).toBe(last)
++    act(() => host.querySelector('[aria-label="Move phase down: Warm-up"]').click())
++    expect(list.lastElementChild).toBe(last)
++    act(() => last.querySelector('.section-name').click())
++    expect(host.querySelector('.section-form input').value).toBe('Warm-up')
++    useUI.setState({ sheets: [] })
++  })
++
 +  it('moves a group inline and scopes removal to that phase without removing its neighbours', () => {
 +    mount([configured('0025', { sg: 'pair' }), configured('0047', { sg: 'pair' }), configured('1259')]); addWarmup()
 +    act(() => [...rows()[0].querySelectorAll('.section-move button')].find(b => b.textContent === 'Warm-up').click())
@@ -8843,7 +8944,7 @@ index df3bc18f179cdc3dff6b9d70c631ce4ba222003c..52a676f348d1ef95b2c92981d6072ab8
 +  })
 +})
 diff --git a/frontend/src/views/RoutineEdit.jsx b/frontend/src/views/RoutineEdit.jsx
-index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396e22beeb1 100644
+index be19be79744296087a2c8a5e7d1353f5564f2d9b..aed3ca3b67f12464cbf77396499be9941d996772 100644
 --- a/frontend/src/views/RoutineEdit.jsx
 +++ b/frontend/src/views/RoutineEdit.jsx
 @@ -1,3 +1,5 @@
@@ -8852,7 +8953,15 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
  import { isFavRoutine, toggleFavRoutine } from '../lib/routine-favs.js'
  import { useNavigate, useParams } from 'react-router-dom'
  import { useEffect, useRef, useState } from 'react'
-@@ -36,16 +38,19 @@ export const ROUTINE_DRAG_SLOP = 8
+@@ -29,6 +31,7 @@ import { POLICIES_FOR, POLICY_NAME, POLICY_DESC, profileRule } from '../lib/prog
+ import BodyMap from '../components/BodyMap.jsx'
+ import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
+ import { viewTarget, exUnitOf } from '../lib/ex-unit.js'
++import { autoScrollStep, scrollHostFor } from '../lib/use-list-reorder.js'
+ 
+ export const ROUTINE_LONG_PRESS_MS = 380
+ export const ROUTINE_DRAG_SLOP = 8
+@@ -36,16 +39,19 @@ export const ROUTINE_DRAG_SLOP = 8
  const clamp = (value, low, high) => Math.max(low, Math.min(high, value))
  
  // Slots are defined after removing the source unit, so a grouped run can never be split.
@@ -8874,7 +8983,42 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
    const insertAt = remaining.slice(0, slot).reduce((count, unit) => count + unit.length, 0)
    exercises.splice(insertAt, 0, ...moved)
    cleanupSg(exercises)
-@@ -151,8 +156,9 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
+@@ -66,34 +72,6 @@ function unitGeometry(list, exercises) {
+   return geometry.every(Boolean) ? geometry : null
+ }
+ 
+-function scrollHostFor(node) {
+-  for (let parent = node.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+-    const overflowY = window.getComputedStyle(parent).overflowY
+-    if (/(auto|scroll)/.test(overflowY) && parent.scrollHeight > parent.clientHeight) return parent
+-  }
+-  return window
+-}
+-
+-function autoScrollStep(host, clientY) {
+-  const edge = 64
+-  const maxStep = 14
+-  let top, bottom, scrollTop, maxScroll
+-  if (host === window) {
+-    const root = document.scrollingElement || document.documentElement
+-    top = window.visualViewport?.offsetTop || 0
+-    bottom = top + (window.visualViewport?.height || window.innerHeight || root.clientHeight)
+-    scrollTop = window.scrollY || root.scrollTop || 0
+-    maxScroll = Math.max(root.scrollHeight, document.body?.scrollHeight || 0) - (bottom - top)
+-  } else {
+-    const rect = host.getBoundingClientRect()
+-    top = rect.top; bottom = rect.bottom
+-    scrollTop = host.scrollTop; maxScroll = host.scrollHeight - host.clientHeight
+-  }
+-  if (clientY < top + edge && scrollTop > 0) return -Math.ceil(maxStep * clamp((top + edge - clientY) / edge, 0, 1))
+-  if (clientY > bottom - edge && scrollTop < maxScroll) return Math.ceil(maxStep * clamp((clientY - bottom + edge) / edge, 0, 1))
+-  return 0
+-}
+-
+ function useRoutineReorder(routineIdentity, exercises, onDrop) {
+   const listRef = useRef(null)
+   const gestureRef = useRef(null)
+@@ -151,8 +129,9 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
        const rect = list.getBoundingClientRect()
        const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
        const geometry = unitGeometry(list, exercisesRef.current)
@@ -8886,7 +9030,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        }
      }
      const indicatorTop = (geometry, gesture, slot, listRect) => {
-@@ -175,11 +181,24 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
+@@ -175,11 +154,24 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
        const remaining = geometry.filter(unit => unit.position !== gesture.sourcePosition)
        const probeY = clamp(y, listRect.top, listRect.bottom)
        const moved = Math.hypot(x - gesture.startX, y - gesture.startY) > ROUTINE_DRAG_SLOP
@@ -8914,7 +9058,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        if (schedule && frame == null) frame = window.requestAnimationFrame(runAutoScroll)
      }
      function runAutoScroll() {
-@@ -201,6 +220,7 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
+@@ -201,6 +193,7 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
        if (!source) { finish(gesture, false); return }
        gesture.active = true; gesture.timer = null
        gesture.sourcePosition = source.position; gesture.sourceUnit = source.unit
@@ -8922,7 +9066,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        gesture.sourceTop = source.top; gesture.sourceBottom = source.bottom
        gesture.grabOffset = gesture.lastY - source.top; gesture.targetSlot = source.position
        gesture.scrollHost = scrollHostFor(list)
-@@ -221,7 +241,8 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
+@@ -221,7 +214,8 @@ function useRoutineReorder(routineIdentity, exercises, onDrop) {
        }
        if (event.isPrimary === false || (event.pointerType === 'mouse' && event.button !== 0)) return
        const target = event.target
@@ -8932,7 +9076,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        const row = target.closest('[data-routine-row]')
        if (!row || !list.contains(row)) return
        const sourceIndex = Number(row.dataset.exIndex)
-@@ -380,8 +401,16 @@ export default function RoutineEdit() {
+@@ -380,8 +374,16 @@ export default function RoutineEdit() {
    // included: this still unmounts after the delete button navigates away.
    useEffect(() => () => useStore.getState().autoBackupNow(), [])
    const edit = fn => update(s => { fn(s.routines.find(x => x.id === id).ex) })
@@ -8951,7 +9095,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
    })
    if (!r) return null
    // The arrows move one exercise (#377): inside its superset, out of it at the edge, and past a
-@@ -421,7 +450,7 @@ export default function RoutineEdit() {
+@@ -421,7 +423,7 @@ export default function RoutineEdit() {
        if (quick) { commit(ex, current => replaceSlotExercise(current, ex.id, live, id)); return }
        const next = replaceSlotExercise(slot, ex.id, live, id)
        exConfigSheet(ex, next, cfg => commit(ex, current => ({ id: ex.id, sg: current.sg, ...cfg })), null, r, null, null, t('Replace'), { backups: true })
@@ -8960,7 +9104,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
    }
    // This routine on paper (#282): the print step (sheets.jsx printPlanSheet, "With pictures"
    // #817), then the weekly printout's page for one session through the same two print paths: the
-@@ -432,21 +461,15 @@ export default function RoutineEdit() {
+@@ -432,21 +434,15 @@ export default function RoutineEdit() {
    const toggleLink = i => edit(ex => {
      if (i < 1) return
      const cur = ex[i], prev = ex[i - 1]
@@ -8985,7 +9129,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
    // A group is a superset of two or more, or a circuit of any size (a one-exercise EMOM).
    const grouped = u => u.length > 1 || !!circuitOf(r.ex, u)
    const unitFirst = new Set(units.filter(grouped).map(u => u[0]))
-@@ -497,75 +520,52 @@ export default function RoutineEdit() {
+@@ -497,75 +493,52 @@ export default function RoutineEdit() {
    const missingCount = profile ? r.ex.filter(e => !exAvailable(S, exOr(e.id))).length : 0
    const swipe = workoutControls(S).swipeSets
  
@@ -9098,7 +9242,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        // What the row's buttons are called (P4): the exercise, with its place in the routine when
        // the same exercise is in it twice, so no two rows share a "Move up".
        const rowName = r.ex.filter(x => x.id === e.id).length > 1 ? `${i + 1}. ${exerciseNameText(ex)}` : exerciseNameText(ex)
-@@ -575,7 +575,7 @@ export default function RoutineEdit() {
+@@ -575,7 +548,7 @@ export default function RoutineEdit() {
        // (.tap-main, card dismiss pass), with the rail's buttons above it, so pressing Move up
        // neither opens the sheet nor fills the row. The long press treats it as the row
        // (data-row-open, useRoutineReorder).
@@ -9107,7 +9251,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
        const item = <div className={'item tap-host' + (inSS.has(i) ? ' in-ss' : '')}>
            {/* Shown on pointer devices only (index.css .routine-grip); the Move buttons and the
                long press stay the way in for a keyboard and a finger. */}
-@@ -588,14 +588,14 @@ export default function RoutineEdit() {
+@@ -588,14 +561,14 @@ export default function RoutineEdit() {
            {/* One rail (P4): the superset link beside the two move buttons, each a finger-sized
                target (index.css .re-rail). The first exercise has nothing above to link to, so its
                link cell stays empty and the arrows keep their place down the list. */}
@@ -9125,7 +9269,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
          className={'routine-drag-row' + (isDragging ? ' is-dragging' : '')}
          style={isDragging ? { transform: `translate3d(0, ${reorder.drag.deltaY}px, 0)` } : undefined}>
          {unitFirst.has(i) && (() => {
-@@ -614,13 +614,95 @@ export default function RoutineEdit() {
+@@ -614,13 +587,95 @@ export default function RoutineEdit() {
              with an Undo; nothing on the other side. The long press still picks the row up to
              reorder it (a press that has lifted keeps the swipe out), and the row's sheet keeps
              Remove for a keyboard. Rows are keyed by index, so the row shuts when the count changes. */}
@@ -9152,7 +9296,9 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
 +      <div style={{ flex: 1, margin: '0 12px' }}>
 +        <input className="input" data-tour="routine-name" aria-label={t('Routine name')} defaultValue={r.name} style={{ fontWeight: 600, fontSize: 'var(--fs-title3)', letterSpacing: '-.021em' }}
 +          onChange={e => update(s => { s.routines.find(x => x.id === id).name = e.target.value.trim() || t('Routine') })} />
-+      </div>
+       </div>
+-    })}{reorder.drag && <div className="routine-drop-indicator" data-testid="routine-drop-indicator"
+-      aria-hidden="true" style={{ top: `${reorder.drag.indicatorTop}px` }} />}</div> : <div className="empty"><div className="ico"><Icon name="dumbbell" /></div>{t('No exercises yet. Add your first one!')}</div>}
 +      {/* The star (#327, lib/routine-favs.js): a favourite leads Plan's list and the Start sheet. */}
 +      <button className={'iconbtn fav-btn' + (isFavRoutine(r) ? ' on' : '')} aria-pressed={isFavRoutine(r)} data-routine-fav
 +        aria-label={isFavRoutine(r) ? t('Remove from favourites') : t('Add to favourites')}
@@ -9197,9 +9343,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
 +      <div className="row" style={{ gap: 8, alignItems: 'center' }}>
 +        <Icon name="warning" style={{ color: 'var(--orange)' }} />
 +        <div className="small">{t('{0} of {1} exercises need equipment outside "{2}"', missingCount, r.ex.length, profile.name)}</div>
-       </div>
--    })}{reorder.drag && <div className="routine-drop-indicator" data-testid="routine-drop-indicator"
--      aria-hidden="true" style={{ top: `${reorder.drag.indicatorTop}px` }} />}</div> : <div className="empty"><div className="ico"><Icon name="dumbbell" /></div>{t('No exercises yet. Add your first one!')}</div>}
++      </div>
 +    </div>}
 +
 +    {/* "Add exercise" heads an unphased list; phased routines add inside each phase. */}
@@ -9213,7 +9357,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
 +      {r.sections?.length ? r.sections.map(section => {
 +        const entries = r.ex.filter(entry => entry.sectionId === section.id)
 +        return <WorkoutPhase key={section.id} section={section} count={entries.length} dropTarget={reorder.drag?.sectionId === section.id}
-+          reorderable phaseDrag={phaseDrag}
++          reorderable={r.sections.length > 1} phaseDrag={phaseDrag}
 +          onAdd={() => addExercise(section.id)} onRemove={() => removeSectionExerciseSheet(section, entries, removeExercise)}
 +          editor={{ routineId: id }}>
 +          {r.ex.map((entry, index) => entry.sectionId === section.id ? renderExercise(entry, index) : null)}
@@ -9225,7 +9369,7 @@ index be19be79744296087a2c8a5e7d1353f5564f2d9b..5b82014083b9f2a50c994e9b6c2ff396
      {/* Coverage of the routine as planned, so a gap shows up while you're building it
          rather than after a month of training around it. */}
 diff --git a/frontend/src/views/Workout.jsx b/frontend/src/views/Workout.jsx
-index d676124da9655b2cc29b93112ea6aca04ee67086..56f4caa30f963da733f5ee75b7ec15504a59db03 100644
+index d676124da9655b2cc29b93112ea6aca04ee67086..4e71ecfe9779b4aba687854175630b9e7fe6b512 100644
 --- a/frontend/src/views/Workout.jsx
 +++ b/frontend/src/views/Workout.jsx
 @@ -1,6 +1,8 @@
@@ -9607,7 +9751,7 @@ index d676124da9655b2cc29b93112ea6aca04ee67086..56f4caa30f963da733f5ee75b7ec1550
 +    <WorkoutSections activeId={A.id} onStructureChange={resetSectionProgress} />
 +    {(A.sections?.length || A.entries.length) ? ((listMode || !A.entries.length) ? (
 +      <div className="workout-list" data-testid="workout-list" ref={listRef}>
-+        {A.sections?.length ? A.sections.map(section => <WorkoutPhase key={section.id} {...phaseProps(section)} reorderable phaseDrag={phaseDrag}>
++        {A.sections?.length ? A.sections.map(section => <WorkoutPhase key={section.id} {...phaseProps(section)} reorderable={listMode && A.sections.length > 1} phaseDrag={phaseDrag}>
 +          {units.map((u, ui) => A.entries[u[0]].sectionId === section.id ? renderListUnit(u, ui) : null)}
 +        </WorkoutPhase>) : units.map(renderListUnit)}
        </div>
